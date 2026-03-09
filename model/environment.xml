@@ -1,0 +1,362 @@
+<!--
+  Environment - Urban Drone Playground (MJCF)
+
+  Includable environment definition.  All bodies are static (no joints).
+  Collision geoms use simple primitives (boxes, cylinders) for fast contact.
+  Visual geoms can be higher-fidelity or textured.
+
+  Layout (top view, approximate):
+
+        N (+Y)
+        ^
+        |         [Tower]
+        |            *
+        |
+   [Warehouse]              [Houses]
+  +-----------+           +--+  +--+
+  |           |           |  |  |  |
+  +-----------+           +--+  +--+
+        |
+        |       (H) Landing Pad
+        |     [Barriers]  [Pillars]
+        |
+        +-----------------------------> E (+X)
+
+  Origin (0,0) = landing pad center = drone spawn
+-->
+<mujoco model="environment">
+
+  <!-- ============================================================ -->
+  <!-- Asset store: textures and materials for the environment      -->
+  <!-- ============================================================ -->
+  <asset>
+    <!-- Ground -->
+    <texture name="ground_grass" type="2d" builtin="checker"
+             rgb1="0.28 0.38 0.18" rgb2="0.22 0.32 0.14"
+             width="512" height="512" mark="random" markrgb="0.25 0.35 0.16"/>
+    <material name="mat_grass" texture="ground_grass" texrepeat="20 20"
+              reflectance="0.05" specular="0.05"/>
+
+    <!-- Concrete / asphalt -->
+    <texture name="tex_concrete" type="2d" builtin="flat"
+             rgb1="0.55 0.55 0.52" rgb2="0.50 0.50 0.48"
+             width="256" height="256" mark="random" markrgb="0.48 0.48 0.46"/>
+    <material name="mat_concrete" texture="tex_concrete" texrepeat="4 4"
+              reflectance="0.1" specular="0.1"/>
+
+    <!-- Landing pad -->
+    <texture name="tex_pad" type="2d" builtin="flat"
+             rgb1="0.25 0.25 0.25" rgb2="0.20 0.20 0.20"
+             width="256" height="256"/>
+    <material name="mat_pad" texture="tex_pad" texrepeat="1 1"
+              reflectance="0.15" specular="0.2"/>
+
+    <!-- Building walls -->
+    <texture name="tex_brick" type="2d" builtin="checker"
+             rgb1="0.65 0.35 0.25" rgb2="0.60 0.32 0.22"
+             width="128" height="128"/>
+    <material name="mat_brick" texture="tex_brick" texrepeat="8 4"
+              reflectance="0.05"/>
+
+    <texture name="tex_metal" type="2d" builtin="flat"
+             rgb1="0.50 0.53 0.58" rgb2="0.45 0.48 0.52"
+             width="128" height="128" mark="random" markrgb="0.42 0.44 0.48"/>
+    <material name="mat_metal" texture="tex_metal" texrepeat="6 6"
+              reflectance="0.3" specular="0.3"/>
+
+    <!-- Roof -->
+    <texture name="tex_roof" type="2d" builtin="flat"
+             rgb1="0.35 0.22 0.18" rgb2="0.30 0.18 0.14"
+             width="128" height="128"/>
+    <material name="mat_roof" texture="tex_roof" texrepeat="4 4"
+              reflectance="0.05"/>
+
+    <!-- Barrier (yellow/black) -->
+    <texture name="tex_barrier" type="2d" builtin="checker"
+             rgb1="0.9 0.7 0.0" rgb2="0.15 0.15 0.15"
+             width="64" height="64"/>
+    <material name="mat_barrier" texture="tex_barrier" texrepeat="4 1"
+              reflectance="0.1"/>
+
+    <!-- Foliage -->
+    <material name="mat_trunk"   rgba="0.45 0.30 0.15 1" specular="0.05"/>
+    <material name="mat_foliage" rgba="0.15 0.45 0.12 0.9" specular="0.05"/>
+
+    <!-- Window -->
+    <material name="mat_window" rgba="0.5 0.65 0.8 0.6" specular="0.6"
+              reflectance="0.4"/>
+
+    <!-- Landing pad markings -->
+    <material name="mat_marking" rgba="1.0 1.0 1.0 0.9"/>
+    <material name="mat_circle"  rgba="1.0 0.3 0.1 0.8"/>
+  </asset>
+
+  <worldbody>
+
+    <!-- ============================================================ -->
+    <!-- Ground plane                                                 -->
+    <!-- ============================================================ -->
+    <geom name="ground" type="plane" size="50 50 0.1"
+          material="mat_grass" contype="1" conaffinity="1"/>
+
+    <!-- Concrete apron around landing area -->
+    <geom name="apron" type="box" pos="0 0 0.001" size="4 4 0.001"
+          material="mat_concrete" contype="1" conaffinity="1"/>
+
+    <!-- ============================================================ -->
+    <!-- Landing Pad (centered at origin)                             -->
+    <!-- Visual-only markings on top of the apron.                    -->
+    <!-- ============================================================ -->
+    <body name="landing_pad" pos="0 0 0.003">
+      <!-- Pad surface -->
+      <geom name="pad_base" type="cylinder" size="1.2 0.002"
+            material="mat_pad" contype="0" conaffinity="0"/>
+
+      <!-- Circle marking -->
+      <geom name="pad_ring" type="cylinder" size="0.9 0.003" pos="0 0 0.001"
+            material="mat_circle" contype="0" conaffinity="0"/>
+      <geom name="pad_inner" type="cylinder" size="0.8 0.003" pos="0 0 0.001"
+            material="mat_pad" contype="0" conaffinity="0"/>
+
+      <!-- "H" marking (two vertical bars + crossbar) -->
+      <geom name="h_left"  type="box" size="0.06 0.35 0.003" pos="-0.2 0 0.002"
+            material="mat_marking" contype="0" conaffinity="0"/>
+      <geom name="h_right" type="box" size="0.06 0.35 0.003" pos="0.2 0 0.002"
+            material="mat_marking" contype="0" conaffinity="0"/>
+      <geom name="h_cross" type="box" size="0.2 0.06 0.003" pos="0 0 0.002"
+            material="mat_marking" contype="0" conaffinity="0"/>
+
+      <!-- Directional arrow (points +X = North on pad) -->
+      <geom name="arrow_shaft" type="box" size="0.03 0.25 0.003" pos="0 0.55 0.002"
+            material="mat_marking" contype="0" conaffinity="0"/>
+      <site name="pad_center" pos="0 0 0.01" size="0.02" rgba="1 0 0 0"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Warehouse (large metal building, west side)                  -->
+    <!-- Collision = one box.  Visual = walls + roof.                 -->
+    <!-- ============================================================ -->
+    <body name="warehouse" pos="-12 3 0">
+      <!-- Collision hull (single box, invisible) -->
+      <geom name="warehouse_col" type="box" size="5 3 3" pos="0 0 3"
+            contype="1" conaffinity="1" rgba="0 0 0 0"/>
+
+      <!-- Visual walls -->
+      <geom name="wh_front" type="box" size="5 0.1 3" pos="0 3 3"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <geom name="wh_back" type="box" size="5 0.1 3" pos="0 -3 3"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <geom name="wh_left" type="box" size="0.1 3 3" pos="-5 0 3"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <geom name="wh_right" type="box" size="0.1 3 3" pos="5 0 3"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <!-- Roof -->
+      <geom name="wh_roof" type="box" size="5.1 3.1 0.1" pos="0 0 6"
+            material="mat_roof" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Control Tower (tall narrow, northeast)                       -->
+    <!-- ============================================================ -->
+    <body name="tower" pos="8 10 0">
+      <!-- Collision hull -->
+      <geom name="tower_col" type="box" size="1.5 1.5 6" pos="0 0 6"
+            contype="1" conaffinity="1" rgba="0 0 0 0"/>
+
+      <!-- Base structure -->
+      <geom name="tower_base" type="box" size="1.5 1.5 4" pos="0 0 4"
+            material="mat_concrete" contype="0" conaffinity="0"/>
+
+      <!-- Observation deck (wider) -->
+      <geom name="tower_deck" type="box" size="2.0 2.0 1.5" pos="0 0 9.5"
+            material="mat_concrete" contype="0" conaffinity="0"/>
+
+      <!-- Deck supports -->
+      <geom name="tower_support_1" type="cylinder" size="0.15 1" pos="1.5 1.5 8"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <geom name="tower_support_2" type="cylinder" size="0.15 1" pos="-1.5 1.5 8"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <geom name="tower_support_3" type="cylinder" size="0.15 1" pos="1.5 -1.5 8"
+            material="mat_metal" contype="0" conaffinity="0"/>
+      <geom name="tower_support_4" type="cylinder" size="0.15 1" pos="-1.5 -1.5 8"
+            material="mat_metal" contype="0" conaffinity="0"/>
+
+      <!-- Windows (glass) -->
+      <geom name="tower_win_n" type="box" size="1.2 0.05 0.8" pos="0 2.0 9.5"
+            material="mat_window" contype="0" conaffinity="0"/>
+      <geom name="tower_win_s" type="box" size="1.2 0.05 0.8" pos="0 -2.0 9.5"
+            material="mat_window" contype="0" conaffinity="0"/>
+      <geom name="tower_win_e" type="box" size="0.05 1.2 0.8" pos="2.0 0 9.5"
+            material="mat_window" contype="0" conaffinity="0"/>
+      <geom name="tower_win_w" type="box" size="0.05 1.2 0.8" pos="-2.0 0 9.5"
+            material="mat_window" contype="0" conaffinity="0"/>
+
+      <!-- Roof -->
+      <geom name="tower_roof" type="box" size="2.1 2.1 0.1" pos="0 0 11"
+            material="mat_roof" contype="0" conaffinity="0"/>
+
+      <!-- Antenna -->
+      <geom name="antenna" type="cylinder" size="0.04 1.5" pos="0 0 12.5"
+            material="mat_metal" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Houses (two small residential buildings, east side)          -->
+    <!-- ============================================================ -->
+    <body name="house_1" pos="10 -3 0">
+      <geom name="house1_col" type="box" size="2 1.5 1.5" pos="0 0 1.5"
+            contype="1" conaffinity="1" rgba="0 0 0 0"/>
+      <geom name="house1_walls" type="box" size="2 1.5 1.5" pos="0 0 1.5"
+            material="mat_brick" contype="0" conaffinity="0"/>
+      <geom name="house1_roof" type="box" size="2.2 1.7 0.15" pos="0 0 3.0"
+            material="mat_roof" contype="0" conaffinity="0"/>
+      <!-- Door -->
+      <geom name="house1_door" type="box" size="0.4 0.05 0.9" pos="0.5 1.5 0.9"
+            rgba="0.35 0.2 0.1 1" contype="0" conaffinity="0"/>
+      <!-- Windows -->
+      <geom name="house1_win1" type="box" size="0.35 0.05 0.3" pos="-0.8 1.5 2.0"
+            material="mat_window" contype="0" conaffinity="0"/>
+      <geom name="house1_win2" type="box" size="0.35 0.05 0.3" pos="1.4 1.5 2.0"
+            material="mat_window" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="house_2" pos="10 -7 0">
+      <geom name="house2_col" type="box" size="1.8 1.3 1.8" pos="0 0 1.8"
+            contype="1" conaffinity="1" rgba="0 0 0 0"/>
+      <geom name="house2_walls" type="box" size="1.8 1.3 1.8" pos="0 0 1.8"
+            material="mat_brick" contype="0" conaffinity="0"/>
+      <geom name="house2_roof" type="box" size="2.0 1.5 0.15" pos="0 0 3.6"
+            material="mat_roof" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Barriers (yellow/black, obstruction course near pad)         -->
+    <!-- ============================================================ -->
+    <body name="barriers" pos="3 -2 0">
+      <geom name="barrier_1" type="box" size="0.5 0.1 0.5" pos="0 0 0.5"
+            material="mat_barrier" contype="1" conaffinity="1"/>
+      <geom name="barrier_2" type="box" size="0.5 0.1 0.5" pos="1.5 0 0.5"
+            material="mat_barrier" contype="1" conaffinity="1"/>
+      <geom name="barrier_3" type="box" size="0.5 0.1 0.5" pos="3.0 0 0.5"
+            material="mat_barrier" contype="1" conaffinity="1"/>
+    </body>
+
+    <!-- Tall barrier wall (fly-over challenge) -->
+    <body name="wall" pos="-3 -6 0">
+      <geom name="wall_main" type="box" size="4 0.15 2.5" pos="0 0 2.5"
+            material="mat_concrete" contype="1" conaffinity="1"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Pillars / columns (fly-between course)                       -->
+    <!-- ============================================================ -->
+    <body name="pillar_1" pos="5 4 0">
+      <geom name="pillar1" type="cylinder" size="0.25 3" pos="0 0 3"
+            material="mat_concrete" contype="1" conaffinity="1"/>
+    </body>
+    <body name="pillar_2" pos="5 6 0">
+      <geom name="pillar2" type="cylinder" size="0.25 3" pos="0 0 3"
+            material="mat_concrete" contype="1" conaffinity="1"/>
+    </body>
+    <body name="pillar_3" pos="5 8 0">
+      <geom name="pillar3" type="cylinder" size="0.25 3" pos="0 0 3"
+            material="mat_concrete" contype="1" conaffinity="1"/>
+    </body>
+
+    <!-- Gate (fly-through) -->
+    <body name="gate" pos="-5 5 0">
+      <geom name="gate_left" type="box" size="0.1 0.1 2.5" pos="-1.5 0 2.5"
+            rgba="1.0 0.3 0.0 1" contype="1" conaffinity="1"/>
+      <geom name="gate_right" type="box" size="0.1 0.1 2.5" pos="1.5 0 2.5"
+            rgba="1.0 0.3 0.0 1" contype="1" conaffinity="1"/>
+      <geom name="gate_top" type="box" size="1.6 0.1 0.1" pos="0 0 5.0"
+            rgba="1.0 0.3 0.0 1" contype="1" conaffinity="1"/>
+      <site name="gate_center" pos="0 0 3.5" size="0.03" rgba="0 1 0 0.5"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Trees (visual only, no collision — the drone flies through)  -->
+    <!-- ============================================================ -->
+    <body name="tree_1" pos="-8 -4 0">
+      <geom name="trunk_1" type="cylinder" size="0.12 1.2" pos="0 0 1.2"
+            material="mat_trunk" contype="0" conaffinity="0"/>
+      <geom name="leaves_1" type="sphere" size="1.0" pos="0 0 3.2"
+            material="mat_foliage" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="tree_2" pos="-6 8 0">
+      <geom name="trunk_2" type="cylinder" size="0.15 1.5" pos="0 0 1.5"
+            material="mat_trunk" contype="0" conaffinity="0"/>
+      <geom name="leaves_2" type="sphere" size="1.3" pos="0 0 3.8"
+            material="mat_foliage" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="tree_3" pos="14 2 0">
+      <geom name="trunk_3" type="cylinder" size="0.1 1.0" pos="0 0 1.0"
+            material="mat_trunk" contype="0" conaffinity="0"/>
+      <geom name="leaves_3" type="sphere" size="0.8" pos="0 0 2.5"
+            material="mat_foliage" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="tree_4" pos="3 12 0">
+      <geom name="trunk_4" type="cylinder" size="0.14 1.4" pos="0 0 1.4"
+            material="mat_trunk" contype="0" conaffinity="0"/>
+      <geom name="leaves_4" type="ellipsoid" size="1.1 1.1 1.5" pos="0 0 3.8"
+            material="mat_foliage" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="tree_5" pos="-14 -8 0">
+      <geom name="trunk_5" type="cylinder" size="0.18 1.8" pos="0 0 1.8"
+            material="mat_trunk" contype="0" conaffinity="0"/>
+      <geom name="leaves_5" type="sphere" size="1.5" pos="0 0 4.5"
+            material="mat_foliage" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Parked vehicle (simple box car, southeast)                   -->
+    <!-- ============================================================ -->
+    <body name="car" pos="6 -8 0">
+      <!-- Chassis -->
+      <geom name="car_body" type="box" size="2.0 0.8 0.5" pos="0 0 0.5"
+            rgba="0.15 0.25 0.55 1" contype="1" conaffinity="1"/>
+      <!-- Cabin -->
+      <geom name="car_cabin" type="box" size="1.0 0.75 0.45" pos="-0.3 0 1.2"
+            rgba="0.5 0.6 0.7 0.6" contype="1" conaffinity="1"/>
+      <!-- Wheels -->
+      <geom name="wheel_fl" type="cylinder" size="0.3 0.12" pos="1.2 0.9 0.3"
+            euler="1.5708 0 0" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0"/>
+      <geom name="wheel_fr" type="cylinder" size="0.3 0.12" pos="1.2 -0.9 0.3"
+            euler="1.5708 0 0" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0"/>
+      <geom name="wheel_rl" type="cylinder" size="0.3 0.12" pos="-1.2 0.9 0.3"
+            euler="1.5708 0 0" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0"/>
+      <geom name="wheel_rr" type="cylinder" size="0.3 0.12" pos="-1.2 -0.9 0.3"
+            euler="1.5708 0 0" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- ============================================================ -->
+    <!-- Elevated platform (precision landing target)                 -->
+    <!-- ============================================================ -->
+    <body name="platform" pos="-8 10 0">
+      <!-- Support legs -->
+      <geom name="plat_leg1" type="cylinder" size="0.08 1.5" pos="0.8 0.8 1.5"
+            material="mat_metal" contype="1" conaffinity="1"/>
+      <geom name="plat_leg2" type="cylinder" size="0.08 1.5" pos="-0.8 0.8 1.5"
+            material="mat_metal" contype="1" conaffinity="1"/>
+      <geom name="plat_leg3" type="cylinder" size="0.08 1.5" pos="0.8 -0.8 1.5"
+            material="mat_metal" contype="1" conaffinity="1"/>
+      <geom name="plat_leg4" type="cylinder" size="0.08 1.5" pos="-0.8 -0.8 1.5"
+            material="mat_metal" contype="1" conaffinity="1"/>
+      <!-- Platform surface -->
+      <geom name="plat_top" type="box" size="1.0 1.0 0.05" pos="0 0 3.0"
+            material="mat_concrete" contype="1" conaffinity="1"/>
+      <!-- Landing cross -->
+      <geom name="plat_x1" type="box" size="0.6 0.04 0.003" pos="0 0 3.053"
+            material="mat_marking" contype="0" conaffinity="0"/>
+      <geom name="plat_x2" type="box" size="0.04 0.6 0.003" pos="0 0 3.053"
+            material="mat_marking" contype="0" conaffinity="0"/>
+      <site name="platform_center" pos="0 0 3.06" size="0.02" rgba="0 1 0 0"/>
+    </body>
+
+  </worldbody>
+
+</mujoco>

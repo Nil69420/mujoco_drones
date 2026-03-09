@@ -1,0 +1,119 @@
+<!--
+  Hummingbird Quadrotor - Drone Definition (MJCF)
+
+  Includable drone-only file.  Contains: meshes, body tree, actuators, sensors.
+  Does NOT contain: ground, lights, compiler, option, defaults.
+  Those belong in scene.xml.
+
+  Physical parameters (from hummingbird.xacro / hummingbird.yaml):
+    mass            = 0.68 kg
+    arm_length      = 0.17 m
+    motor_constant  = 8.54858e-06  (thrust = kf * omega^2)
+    moment_constant = 0.016        (torque = km * thrust)
+    max_rot_velocity= 838 rad/s
+
+  Rotor layout (+ config, top view):
+        Front (0, CW)
+            |
+    Left (1, CCW) -- + -- Right (3, CCW)
+            |
+        Back (2, CW)
+-->
+<mujoco model="hummingbird">
+
+  <asset>
+    <mesh name="body" file="hummingbird.obj" scale="1 1 1"/>
+    <mesh name="prop_cw"  file="propeller_cw.obj"  scale="0.1 0.1 0.1"/>
+    <mesh name="prop_ccw" file="propeller_ccw.obj" scale="0.1 0.1 0.1"/>
+  </asset>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 1.0">
+      <freejoint name="root"/>
+
+      <site name="imu_site" pos="0 0 0" size="0.005"/>
+
+      <inertial pos="0 0 0" mass="0.68"
+                diaginertia="0.007 0.007 0.012"/>
+
+      <geom name="body_visual" type="mesh" mesh="body"
+            contype="0" conaffinity="0" rgba="0.3 0.3 0.3 1"/>
+      <geom name="body_collision" type="box" size="0.05 0.05 0.06"
+            rgba="0.3 0.3 0.3 0" mass="0"/>
+
+      <!-- Rotor 0: Front (+X), CW -->
+      <body name="rotor_0" pos="0.17 0 0.01">
+        <joint name="rotor_0_joint" type="hinge" axis="0 0 1"
+               damping="0.00005" frictionloss="0.0001"/>
+        <inertial pos="0 0 0" mass="0.009"
+                  diaginertia="7.669e-06 7.507e-06 1.755e-07"/>
+        <geom name="prop_0" type="mesh" mesh="prop_cw"
+              contype="0" conaffinity="0" rgba="1.0 0.2 0.2 0.6"/>
+        <site name="thrust_0" pos="0 0 0" size="0.005"/>
+      </body>
+
+      <!-- Rotor 1: Left (+Y), CCW -->
+      <body name="rotor_1" pos="0 0.17 0.01">
+        <joint name="rotor_1_joint" type="hinge" axis="0 0 1"
+               damping="0.00005" frictionloss="0.0001"/>
+        <inertial pos="0 0 0" mass="0.009"
+                  diaginertia="7.669e-06 7.507e-06 1.755e-07"/>
+        <geom name="prop_1" type="mesh" mesh="prop_ccw"
+              contype="0" conaffinity="0" rgba="0.2 0.4 1.0 0.6"/>
+        <site name="thrust_1" pos="0 0 0" size="0.005"/>
+      </body>
+
+      <!-- Rotor 2: Back (-X), CW -->
+      <body name="rotor_2" pos="-0.17 0 0.01">
+        <joint name="rotor_2_joint" type="hinge" axis="0 0 1"
+               damping="0.00005" frictionloss="0.0001"/>
+        <inertial pos="0 0 0" mass="0.009"
+                  diaginertia="7.669e-06 7.507e-06 1.755e-07"/>
+        <geom name="prop_2" type="mesh" mesh="prop_cw"
+              contype="0" conaffinity="0" rgba="0.2 0.4 1.0 0.6"/>
+        <site name="thrust_2" pos="0 0 0" size="0.005"/>
+      </body>
+
+      <!-- Rotor 3: Right (-Y), CCW -->
+      <body name="rotor_3" pos="0 -0.17 0.01">
+        <joint name="rotor_3_joint" type="hinge" axis="0 0 1"
+               damping="0.00005" frictionloss="0.0001"/>
+        <inertial pos="0 0 0" mass="0.009"
+                  diaginertia="7.669e-06 7.507e-06 1.755e-07"/>
+        <geom name="prop_3" type="mesh" mesh="prop_ccw"
+              contype="0" conaffinity="0" rgba="0.2 0.4 1.0 0.6"/>
+        <site name="thrust_3" pos="0 0 0" size="0.005"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="thrust_0" site="thrust_0"
+             gear="0 0 1 0 0 -0.016" ctrlrange="0 6" ctrllimited="true"/>
+    <general name="thrust_1" site="thrust_1"
+             gear="0 0 1 0 0  0.016" ctrlrange="0 6" ctrllimited="true"/>
+    <general name="thrust_2" site="thrust_2"
+             gear="0 0 1 0 0 -0.016" ctrlrange="0 6" ctrllimited="true"/>
+    <general name="thrust_3" site="thrust_3"
+             gear="0 0 1 0 0  0.016" ctrlrange="0 6" ctrllimited="true"/>
+
+    <velocity name="spin_0" joint="rotor_0_joint" kv="0.0001"
+              ctrlrange="-838 0" ctrllimited="true"/>
+    <velocity name="spin_1" joint="rotor_1_joint" kv="0.0001"
+              ctrlrange="0 838" ctrllimited="true"/>
+    <velocity name="spin_2" joint="rotor_2_joint" kv="0.0001"
+              ctrlrange="-838 0" ctrllimited="true"/>
+    <velocity name="spin_3" joint="rotor_3_joint" kv="0.0001"
+              ctrlrange="0 838" ctrllimited="true"/>
+  </actuator>
+
+  <sensor>
+    <accelerometer name="imu_accel" site="imu_site"/>
+    <gyro          name="imu_gyro"  site="imu_site"/>
+    <framequat     name="orientation" objtype="site" objname="imu_site"/>
+    <framepos      name="position"   objtype="site" objname="imu_site"/>
+    <framexaxis    name="heading"    objtype="site" objname="imu_site"/>
+    <velocimeter   name="linvel"     site="imu_site"/>
+  </sensor>
+
+</mujoco>

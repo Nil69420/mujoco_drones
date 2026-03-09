@@ -1,0 +1,81 @@
+<!--
+  Scene Compositor - mujoco_drones (MJCF)
+
+  This is the top-level file you load.  It sets global physics,
+  rendering, defaults, then includes the drone and environment.
+
+  Usage:
+    ./hummingbird                          (loads this via default search)
+    ./hummingbird - -model model/scene.xml
+
+  Composition:
+    scene.xml
+      ├── hummingbird.xml   (drone body, actuators, sensors)
+      └── environment.xml   (ground, buildings, obstacles)
+-->
+<mujoco model="mujoco_drones">
+
+  <!-- ============================================================ -->
+  <!-- Compiler settings (apply globally to all included files)     -->
+  <!-- ============================================================ -->
+  <compiler angle="radian" meshdir="../meshes"/>
+
+  <!-- ============================================================ -->
+  <!-- Physics options                                              -->
+  <!-- ============================================================ -->
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"
+          cone="pyramidal" impratio="2">
+    <flag contact="enable" warmstart="enable"/>
+  </option>
+
+  <!-- ============================================================ -->
+  <!-- Solver tuning                                                -->
+  <!-- ============================================================ -->
+  <size nconmax="256" njmax="512"/>
+
+  <!-- ============================================================ -->
+  <!-- Visual settings                                              -->
+  <!-- ============================================================ -->
+  <visual>
+    <headlight diffuse="0.5 0.5 0.5" ambient="0.2 0.2 0.2" specular="0.1 0.1 0.1"/>
+    <rgba fog="0.65 0.72 0.82 1"/>
+    <map znear="0.01" zfar="500" fogstart="30" fogend="120"
+         shadowscale="0.5" force="0.02"/>
+    <quality shadowsize="4096"/>
+  </visual>
+
+  <!-- ============================================================ -->
+  <!-- Defaults (inherited by all geoms/joints unless overridden)   -->
+  <!-- ============================================================ -->
+  <default>
+    <joint damping="0.0005"/>
+    <geom contype="1" conaffinity="1" condim="3" friction="1 0.5 0.1"/>
+  </default>
+
+  <!-- ============================================================ -->
+  <!-- Lighting (global scene lights)                               -->
+  <!-- ============================================================ -->
+  <worldbody>
+    <!-- Sun: high directional -->
+    <light name="sun" directional="true"
+           diffuse="0.9 0.87 0.8" specular="0.4 0.38 0.35"
+           pos="0 0 20" dir="-0.3 -0.4 -1" castshadow="true"/>
+
+    <!-- Fill light: softer, from the side -->
+    <light name="fill" directional="true"
+           diffuse="0.35 0.4 0.5" specular="0.05 0.05 0.08"
+           pos="15 15 10" dir="-0.5 -0.5 -0.7" castshadow="false"/>
+
+    <!-- Sky hemisphere approximation -->
+    <light name="sky" directional="true"
+           diffuse="0.25 0.3 0.4" specular="0 0 0"
+           pos="0 0 20" dir="0 0 -1" castshadow="false"/>
+  </worldbody>
+
+  <!-- ============================================================ -->
+  <!-- Include drone and environment                                -->
+  <!-- ============================================================ -->
+  <include file="hummingbird.xml"/>
+  <include file="environment.xml"/>
+
+</mujoco>
