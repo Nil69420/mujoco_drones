@@ -23,7 +23,7 @@
   <!-- ============================================================ -->
   <!-- Physics options                                              -->
   <!-- ============================================================ -->
-  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="RK4"
           cone="pyramidal" impratio="2">
     <flag contact="enable" warmstart="enable"/>
   </option>

@@ -24,9 +24,14 @@ find_package(glfw3 QUIET)
 find_package(OpenGL QUIET)
 
 # ── Build ───────────────────────────────────────────────────────────
-add_executable(hummingbird src/main.c)
+add_executable(hummingbird
+    src/main.c
+    src/controller.c
+    src/viewer.c
+)
 
 target_include_directories(hummingbird PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
     ${MUJOCO_DIR}/include
 )
 
