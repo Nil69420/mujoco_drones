@@ -20,6 +20,7 @@ Checks: >
   -misc-include-cleaner,
   -readability-isolate-declaration,
   -hicpp-braces-around-statements,
+  -hicpp-signed-bitwise,
   -google-readability-braces-around-statements,
   -clang-diagnostic-unknown-warning-option
 

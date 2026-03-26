@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  MUJOCO_VERSION: "3.2.6"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Release
+            build_type: Release
+            cmake_extra: ""
+          - name: ASan
+            build_type: Debug
+            cmake_extra: "-DENABLE_ASAN=ON"
+          - name: TSan
+            build_type: Debug
+            cmake_extra: "-DENABLE_TSAN=ON"
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake \
+            libglfw3-dev libgl-dev \
+            clang-tidy
+
+      - name: Cache MuJoCo
+        id: cache-mujoco
+        uses: actions/cache@v4
+        with:
+          path: ~/.mujoco/mujoco
+          key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
+
+      - name: Install MuJoCo
+        if: steps.cache-mujoco.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.mujoco
+          curl -fsSL \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
+            | tar xz -C ~/.mujoco
+          mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust (renoir)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            renoir/target
+          key: renoir-${{ runner.os }}-${{ hashFiles('renoir/Cargo.lock', 'renoir/Cargo.toml') }}
+          restore-keys: renoir-${{ runner.os }}-
+
+      - name: Clone renoir
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/renoir
+          path: renoir
+
+      - name: Build renoir
+        run: |
+          cd renoir
+          cargo build --release --features c-api
+
+      - name: Configure
+        run: |
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DENABLE_IPC=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir \
+            ${{ matrix.cmake_extra }}
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+  lint:
+    runs-on: ubuntu-latest
+    name: Static Analysis
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake \
+            libglfw3-dev libgl-dev \
+            clang-tidy
+
+      - name: Cache MuJoCo
+        id: cache-mujoco
+        uses: actions/cache@v4
+        with:
+          path: ~/.mujoco/mujoco
+          key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
+
+      - name: Install MuJoCo
+        if: steps.cache-mujoco.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.mujoco
+          curl -fsSL \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
+            | tar xz -C ~/.mujoco
+          mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust (renoir)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            renoir/target
+          key: renoir-${{ runner.os }}-${{ hashFiles('renoir/Cargo.lock', 'renoir/Cargo.toml') }}
+          restore-keys: renoir-${{ runner.os }}-
+
+      - name: Clone renoir
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/renoir
+          path: renoir
+
+      - name: Build renoir
+        run: |
+          cd renoir
+          cargo build --release --features c-api
+
+      - name: Configure
+        run: |
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_IPC=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir
+
+      - name: Run clang-tidy
+        run: cmake --build build --target lint
