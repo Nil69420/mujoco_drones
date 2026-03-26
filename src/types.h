@@ -1,27 +1,20 @@
-/*
- * types.h - Shared types and constants for mujoco_drones
- */
 #ifndef MUJOCO_DRONES_TYPES_H
 #define MUJOCO_DRONES_TYPES_H
 
 #include <mujoco/mujoco.h>
 #include <stdbool.h>
 
-/* ================================================================
- * Physical constants (from hummingbird.xacro / hummingbird.yaml)
- * ================================================================ */
+#include "setpoint.h"
+
 #define GRAVITY          9.81
-#define TOTAL_MASS       0.716       /* kg (body + 4 rotors)              */
-#define ARM_LENGTH       0.17        /* m                                 */
-#define MOMENT_CONSTANT  0.016       /* m   torque = km * thrust          */
-#define MOTOR_KF         8.54858e-6  /* kg*m/s^2  thrust = kf * omega^2  */
-#define MAX_OMEGA        838.0       /* rad/s                             */
-#define MAX_THRUST       (MOTOR_KF * MAX_OMEGA * MAX_OMEGA)  /* ~6.0 N   */
+#define TOTAL_MASS       0.716
+#define ARM_LENGTH       0.17
+#define MOMENT_CONSTANT  0.016
+#define MOTOR_KF         8.54858e-6
+#define MAX_OMEGA        838.0
+#define MAX_THRUST       (MOTOR_KF * MAX_OMEGA * MAX_OMEGA)
 #define NUM_ROTORS       4
 
-/* ================================================================
- * Controller gains
- * ================================================================ */
 typedef struct {
     double kp_z,     kd_z,     ki_z;
     double kp_roll,  kd_roll;
@@ -30,17 +23,6 @@ typedef struct {
     double kp_xy,    kd_xy;
 } ctrl_gains_t;
 
-/* ================================================================
- * Setpoint
- * ================================================================ */
-typedef struct {
-    double x, y, z;
-    double yaw;
-} setpoint_t;
-
-/* ================================================================
- * Controller state (integrators, previous errors, etc.)
- * ================================================================ */
 typedef struct {
     int       act_thrust[NUM_ROTORS];
     int       act_spin[NUM_ROTORS];
@@ -50,15 +32,22 @@ typedef struct {
     bool      initialized;
 } ctrl_state_t;
 
-/* ================================================================
- * Simulation context (bundles everything non-viewer)
- * ================================================================ */
+#ifdef ENABLE_IPC
+#include "transport/transport.h"
+#include "sensors/sensors.h"
+#endif
+
 typedef struct {
     mjModel*     model;
     mjData*      data;
     ctrl_gains_t gains;
     setpoint_t   target;
     ctrl_state_t ctrl;
+#ifdef ENABLE_IPC
+    transport_t   transport;
+    sensor_mgr_t  sensors;
+    bool          ipc_enabled;
+#endif
 } sim_t;
 
-#endif /* MUJOCO_DRONES_TYPES_H */
+#endif

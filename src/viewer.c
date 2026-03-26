@@ -1,7 +1,3 @@
-/*
- * viewer.c - GLFW/MuJoCo interactive viewer + telemetry
- */
-
 #include "viewer.h"
 #include "controller.h"
 
@@ -11,9 +7,6 @@
 #ifndef NO_GLFW
 #include <GLFW/glfw3.h>
 
-/* ================================================================
- * Module state
- * ================================================================ */
 static mjvCamera  cam;
 static mjvOption   opt;
 static mjvScene   scn;
@@ -25,12 +18,8 @@ static bool button_middle = false;
 static bool button_right  = false;
 static double lastx = 0, lasty = 0;
 
-/* Pointer back to the sim for use in callbacks */
 static sim_t *g_viewer_sim = NULL;
 
-/* ================================================================
- * GLFW callbacks
- * ================================================================ */
 static void cb_keyboard(GLFWwindow *win, int key, int scancode, int act, int mods) {
     (void)scancode; (void)mods;
     if (act != GLFW_PRESS) return;
@@ -48,24 +37,20 @@ static void cb_keyboard(GLFWwindow *win, int key, int scancode, int act, int mod
         ctrl_reset(sim);
         break;
 
-    /* Target altitude */
     case GLFW_KEY_UP:   sim->target.z += 0.25; break;
     case GLFW_KEY_DOWN:
         sim->target.z -= 0.25;
         if (sim->target.z < 0.2) sim->target.z = 0.2;
         break;
 
-    /* Target XY */
     case GLFW_KEY_W: sim->target.x += 0.5; break;
     case GLFW_KEY_S: sim->target.x -= 0.5; break;
     case GLFW_KEY_A: sim->target.y += 0.5; break;
     case GLFW_KEY_D: sim->target.y -= 0.5; break;
 
-    /* Target yaw */
     case GLFW_KEY_LEFT:  sim->target.yaw += 0.2; break;
     case GLFW_KEY_RIGHT: sim->target.yaw -= 0.2; break;
 
-    /* Reset target */
     case GLFW_KEY_R:
         sim->target.x = 0; sim->target.y = 0;
         sim->target.z = 1.0; sim->target.yaw = 0;
@@ -89,21 +74,22 @@ static void cb_mouse_move(GLFWwindow *win, double xpos, double ypos) {
 
     if (!button_left && !button_middle && !button_right) return;
 
-    int width, height;
+    int width = 0, height = 0;
     glfwGetWindowSize(win, &width, &height);
 
     bool shift = (glfwGetKey(win, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
                   glfwGetKey(win, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
 
-    mjtMouse action;
-    if (button_right)
+    mjtMouse action = mjMOUSE_ZOOM;
+    if (button_right) {
         action = shift ? mjMOUSE_MOVE_H : mjMOUSE_MOVE_V;
-    else if (button_left)
+    } else if (button_left) {
         action = shift ? mjMOUSE_ROTATE_H : mjMOUSE_ROTATE_V;
-    else
+    } else {
         action = mjMOUSE_ZOOM;
+    }
 
-    mjv_moveCamera(g_viewer_sim->model, action,
+    mjv_moveCamera(g_viewer_sim->model, (int)action,
                    dx / (double)width, dy / (double)height, &scn, &cam);
 }
 
@@ -113,9 +99,6 @@ static void cb_scroll(GLFWwindow *win, double xoffset, double yoffset) {
                    0.0, -0.05 * yoffset, &scn, &cam);
 }
 
-/* ================================================================
- * Public API
- * ================================================================ */
 int viewer_init(sim_t *sim) {
     g_viewer_sim = sim;
 
@@ -161,25 +144,37 @@ void viewer_loop(sim_t *sim) {
     int telemetry_counter = 0;
 
     while (!glfwWindowShouldClose(window)) {
-        /* Step simulation to maintain real-time pace */
         mjtNum sim_start = sim->data->time;
-        while (sim->data->time - sim_start < 1.0 / 60.0)
+        while (sim->data->time - sim_start < 1.0 / 60.0) {
             mj_step(sim->model, sim->data);
+#ifdef ENABLE_IPC
+            if (sim->ipc_enabled) {
+                sensor_update(&sim->sensors, sim->model, sim->data,
+                              &sim->target);
+            }
+#endif
+        }
 
-        /* Telemetry at ~10 Hz */
-        if (++telemetry_counter % 6 == 0)
+#ifdef ENABLE_IPC
+        if (sim->ipc_enabled && sim->sensors.cam_due) {
+            sensor_render_camera(&sim->sensors, sim->model, sim->data);
+        }
+#endif
+
+        if (++telemetry_counter % 6 == 0) {
             viewer_print_telemetry(sim);
+        }
 
-        /* Render */
-        int width, height;
+        int width = 0, height = 0;
         glfwGetFramebufferSize(window, &width, &height);
         mjrRect viewport = {0, 0, width, height};
 
         mjv_updateScene(sim->model, sim->data, &opt, NULL, &cam, mjCAT_ALL, &scn);
         mjr_render(viewport, &scn, &con);
 
-        /* HUD overlay */
-        char overlay[512];
+        char overlay[2048];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
         snprintf(overlay, sizeof(overlay),
                  "Target: (%.1f, %.1f, %.1f) yaw=%.0f deg\n"
                  "Pos:    (%.2f, %.2f, %.2f)\n"
@@ -188,6 +183,7 @@ void viewer_loop(sim_t *sim) {
                  sim->target.yaw * 180.0 / M_PI,
                  sim->data->qpos[0], sim->data->qpos[1], sim->data->qpos[2],
                  sim->data->time);
+#pragma GCC diagnostic pop
         mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport, overlay, NULL, &con);
 
         glfwSwapBuffers(window);
@@ -203,13 +199,10 @@ void viewer_close(void) {
     window = NULL;
 }
 
-#endif /* NO_GLFW */
+#endif
 
-/* ================================================================
- * Telemetry (always available)
- * ================================================================ */
 void viewer_print_telemetry(const sim_t *sim) {
-    double roll, pitch, yaw;
+    double roll = 0.0, pitch = 0.0, yaw = 0.0;
     quat_to_euler(&sim->data->qpos[3], &roll, &pitch, &yaw);
 
     const ctrl_state_t *c = &sim->ctrl;

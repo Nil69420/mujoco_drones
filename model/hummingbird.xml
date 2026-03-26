@@ -33,6 +33,17 @@
 
       <site name="imu_site" pos="0 0 0" size="0.005"/>
 
+      <!-- LiDAR: horizontal scan plane at drone center -->
+      <site name="lidar_site" pos="0 0 -0.02" size="0.005" rgba="0 1 0 0.3"/>
+
+      <!-- Infrared rangefinder: bottom of body, pointing down (-Z) -->
+      <site name="infrared_site" pos="0 0 -0.06" euler="180 0 0"
+            size="0.003" rgba="1 0 0 0.3"/>
+
+      <!-- Forward-facing RGBD camera -->
+      <camera name="drone_camera" pos="0.08 0 -0.02"
+              xyaxes="0 -1 0 0 0 1" fovy="60"/>
+
       <inertial pos="0 0 0" mass="0.68"
                 diaginertia="0.007 0.007 0.012"/>
 
@@ -114,6 +125,9 @@
     <framepos      name="position"   objtype="site" objname="imu_site"/>
     <framexaxis    name="heading"    objtype="site" objname="imu_site"/>
     <velocimeter   name="linvel"     site="imu_site"/>
+    <!-- Magnetometer axes (3-axis heading reference) -->
+    <frameyaxis    name="mag_y"      objtype="site" objname="imu_site"/>
+    <framezaxis    name="mag_z"      objtype="site" objname="imu_site"/>
   </sensor>
 
 </mujoco>

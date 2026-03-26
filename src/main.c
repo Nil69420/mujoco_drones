@@ -1,10 +1,3 @@
-/*
- * main.c - Entry point for mujoco_drones
- *
- * Keeps main() small: parse args → load model → run sim.
- * All logic lives in controller.c and viewer.c.
- */
-
 #include "types.h"
 #include "controller.h"
 #include "viewer.h"
@@ -13,7 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ================================================================ */
+#ifdef ENABLE_IPC
+#include "transport/transport_renoir.h"
+#include "sensors/sensors.h"
+#endif
+
 static void print_usage(const char *prog) {
     printf("Usage: %s [OPTIONS]\n\n", prog);
     printf("Hummingbird quadrotor simulation (MuJoCo)\n\n");
@@ -22,6 +19,12 @@ static void print_usage(const char *prog) {
     printf("  --duration SEC   Sim duration in seconds (headless, default 10)\n");
     printf("  --altitude M     Initial target altitude (default 1.0)\n");
     printf("  --model PATH     Path to MJCF model file\n");
+#ifdef ENABLE_IPC
+    printf("  --no-ipc         Disable IPC transport\n");
+    printf("  --lidar-rays N   Number of LiDAR rays (default 36)\n");
+    printf("  --cam-width W    Camera width in pixels (default 320)\n");
+    printf("  --cam-height H   Camera height in pixels (default 240)\n");
+#endif
     printf("  -h, --help       Show this help\n\n");
     printf("Interactive controls:\n");
     printf("  W/A/S/D          Move target XY\n");
@@ -33,7 +36,6 @@ static void print_usage(const char *prog) {
     printf("  Mouse            Camera control\n");
 }
 
-/* ================================================================ */
 static const char *find_model(void) {
     static const char *candidates[] = {
         "model/scene.xml",
@@ -50,7 +52,6 @@ static const char *find_model(void) {
     return NULL;
 }
 
-/* ================================================================ */
 static int run_headless(sim_t *sim, double duration) {
     printf("Running headless for %.1f seconds...\n", duration);
     printf("Target: altitude=%.1f m, position=(%.1f, %.1f)\n\n",
@@ -61,15 +62,21 @@ static int run_headless(sim_t *sim, double duration) {
 
     while (sim->data->time < duration) {
         mj_step(sim->model, sim->data);
-        if (++step % print_every == 0)
+#ifdef ENABLE_IPC
+        if (sim->ipc_enabled) {
+            sensor_update(&sim->sensors, sim->model, sim->data, &sim->target);
+        }
+#endif
+        if (++step % print_every == 0) {
             viewer_print_telemetry(sim);
+        }
     }
 
     printf("\n\nFinal state:\n");
     printf("  Position: (%.4f, %.4f, %.4f)\n",
            sim->data->qpos[0], sim->data->qpos[1], sim->data->qpos[2]);
 
-    double roll, pitch, yaw;
+    double roll = 0.0, pitch = 0.0, yaw = 0.0;
     quat_to_euler(&sim->data->qpos[3], &roll, &pitch, &yaw);
     printf("  RPY:      (%.2f, %.2f, %.2f) deg\n",
            roll * 180.0/M_PI, pitch * 180.0/M_PI, yaw * 180.0/M_PI);
@@ -79,19 +86,29 @@ static int run_headless(sim_t *sim, double duration) {
     return 0;
 }
 
-/* ================================================================ */
 int main(int argc, char **argv) {
     bool        headless   = false;
     double      duration   = 10.0;
     const char *model_path = NULL;
     double      altitude   = 1.0;
+#ifdef ENABLE_IPC
+    bool        no_ipc     = false;
+    int         lidar_rays = 36;
+    int         cam_w      = 320;
+    int         cam_h      = 240;
+#endif
 
-    /* ---- Parse arguments ---- */
     for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "--headless"))                  headless = true;
-        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   duration   = atof(argv[++i]);
-        else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   altitude   = atof(argv[++i]);
-        else if (!strcmp(argv[i], "--model")    && i+1 < argc)   model_path = argv[++i];
+        if      (!strcmp(argv[i], "--headless"))                  { headless = true; }
+        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { duration   = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   { altitude   = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--model")    && i+1 < argc)   { model_path = argv[++i]; }
+#ifdef ENABLE_IPC
+        else if (!strcmp(argv[i], "--no-ipc"))                    { no_ipc = true; }
+        else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { lidar_rays = (int)strtol(argv[++i], NULL, 10); }
+        else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { cam_w = (int)strtol(argv[++i], NULL, 10); }
+        else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { cam_h = (int)strtol(argv[++i], NULL, 10); }
+#endif
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             print_usage(argv[0]);
             return 0;
@@ -102,14 +119,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* ---- Locate model ---- */
     if (!model_path) model_path = find_model();
     if (!model_path) {
         fprintf(stderr, "ERROR: Could not find scene.xml. Use --model.\n");
         return 1;
     }
 
-    /* ---- Initialize sim context ---- */
     sim_t sim = {0};
     sim.gains  = ctrl_default_gains();
     sim.target = (setpoint_t){ .x = 0, .y = 0, .z = altitude, .yaw = 0 };
@@ -128,7 +143,6 @@ int main(int argc, char **argv) {
     printf("  timestep: %.4f s (%.0f Hz)\n",
            sim.model->opt.timestep, 1.0 / sim.model->opt.timestep);
 
-    /* ---- Wire up controller ---- */
     if (ctrl_resolve_actuators(&sim) != 0) {
         mj_deleteData(sim.data);
         mj_deleteModel(sim.model);
@@ -137,8 +151,33 @@ int main(int argc, char **argv) {
     ctrl_reset(&sim);
     mjcb_control = ctrl_update;
 
-    /* ---- Run ---- */
-    int rc;
+#ifdef ENABLE_IPC
+    sim.ipc_enabled = !no_ipc;
+    if (sim.ipc_enabled) {
+        if (transport_renoir_create(&sim.transport) != 0 ||
+            transport_init(&sim.transport) != 0) {
+            fprintf(stderr, "ERROR: failed to initialize IPC transport\n");
+            sim.ipc_enabled = false;
+        } else {
+            sensor_config_t scfg = sensor_default_config();
+            scfg.lidar_num_rays = (uint16_t)lidar_rays;
+            scfg.camera_width   = (uint16_t)cam_w;
+            scfg.camera_height  = (uint16_t)cam_h;
+
+            if (headless) {
+                scfg.enable.camera = false;
+            }
+
+            if (sensor_init(&sim.sensors, sim.model,
+                            &sim.transport, &scfg) != 0) {
+                fprintf(stderr, "ERROR: failed to initialize sensors\n");
+                sim.ipc_enabled = false;
+            }
+        }
+    }
+#endif
+
+    int rc = 0;
     if (headless) {
         rc = run_headless(&sim, duration);
     } else {
@@ -158,7 +197,13 @@ int main(int argc, char **argv) {
 #endif
     }
 
-    /* ---- Cleanup ---- */
+#ifdef ENABLE_IPC
+    if (sim.ipc_enabled) {
+        sensor_cleanup(&sim.sensors);
+        transport_shutdown(&sim.transport);
+    }
+#endif
+
     mj_deleteData(sim.data);
     mj_deleteModel(sim.model);
     return rc;

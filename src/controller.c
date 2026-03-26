@@ -130,8 +130,9 @@ static void mixer(double total_thrust,
     f_out[2] = total_thrust / 4.0 + tau_pitch / (2.0 * L) - tau_yaw / (4.0 * km);
     f_out[3] = total_thrust / 4.0 - tau_roll  / (2.0 * L) + tau_yaw / (4.0 * km);
 
-    for (int i = 0; i < NUM_ROTORS; i++)
+    for (int i = 0; i < NUM_ROTORS; i++) {
         f_out[i] = clampd(f_out[i], 0.0, MAX_THRUST);
+    }
 }
 
 /* ================================================================
@@ -162,7 +163,7 @@ void ctrl_update(const mjModel *model, mjData *data) {
     double vx = data->qvel[0], vy = data->qvel[1], vz = data->qvel[2];
     double wx = data->qvel[3], wy = data->qvel[4], wz = data->qvel[5];
 
-    double roll, pitch, yaw;
+    double roll = 0.0, pitch = 0.0, yaw = 0.0;
     quat_to_euler(&data->qpos[3], &roll, &pitch, &yaw);
 
     /* Initialize previous values on first call */
@@ -176,8 +177,9 @@ void ctrl_update(const mjModel *model, mjData *data) {
     double z_error = t->z - pz;
 
     /* Only integrate when error is small (anti-windup) */
-    if (fabs(z_error) < 1.0)
+    if (fabs(z_error) < 1.0) {
         c->z_integral += z_error * dt;
+    }
     c->z_integral = clampd(c->z_integral, -1.0, 1.0);
 
     /* Compensate for tilt: thrust must be divided by cos(roll)*cos(pitch)

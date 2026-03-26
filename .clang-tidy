@@ -1,0 +1,48 @@
+Checks: >
+  *,
+  -altera-*,
+  -android-*,
+  -darwin-*,
+  -fuchsia-*,
+  -google-readability-todo,
+  -hicpp-multiway-paths-covered,
+  -llvm-header-guard,
+  -llvm-include-order,
+  -llvmlibc-*,
+  -modernize-*,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -bugprone-easily-swappable-parameters,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -bugprone-reserved-identifier,
+  -misc-include-cleaner,
+  -readability-isolate-declaration,
+  -hicpp-braces-around-statements,
+  -google-readability-braces-around-statements,
+  -clang-diagnostic-unknown-warning-option
+
+WarningsAsErrors: '*'
+
+HeaderFilterRegex: 'src/.*\.h$'
+
+CheckOptions:
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: '1'
+  - key: readability-function-cognitive-complexity.Threshold
+    value: '40'
+  - key: readability-identifier-length.MinimumVariableNameLength
+    value: '2'
+  - key: readability-identifier-length.MinimumParameterNameLength
+    value: '1'
+  - key: readability-identifier-length.IgnoredVariableNames
+    value: '^[ijkxyzwhdtfn]$'
+  - key: readability-identifier-length.IgnoredParameterNames
+    value: '^[a-z]$'
+  - key: cert-err33-c.CheckedFunctions
+    value: ''
+  - key: misc-unused-parameters.StrictMode
+    value: 'true'
+  - key: bugprone-signal-handler.AsyncSafeFunctionSet
+    value: 'POSIX'
