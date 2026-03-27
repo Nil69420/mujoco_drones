@@ -46,6 +46,80 @@ static const struct {
 };
 #define NUM_DRONE_TOPICS  (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0]))
 
+static void bridge_accept_connection(foxglove_bridge_t *br) {
+    int cfd = accept(br->listen_fd, NULL, NULL);
+    if (cfd < 0) return;
+
+    int slot = -1;
+    for (int i = 0; i < FG_MAX_CLIENTS; i++) {
+        if (!br->clients[i].alive) { slot = i; break; }
+    }
+
+    if (slot < 0 || ws_accept_handshake(cfd) != 0) {
+        close(cfd);
+        return;
+    }
+
+    br->clients[slot].fd       = cfd;
+    br->clients[slot].alive    = true;
+    br->clients[slot].num_subs = 0;
+
+    fg_send_server_info(cfd);
+    fg_send_advertise(cfd, br->channels, br->num_channels);
+    fprintf(stderr, "[foxglove] client connected (slot %d)\n", slot);
+}
+
+static void bridge_handle_client_data(foxglove_bridge_t *br, int ci,
+                                      uint8_t *recv_buf, size_t buf_sz) {
+    uint8_t opcode = 0;
+    ssize_t plen = ws_recv_frame(br->clients[ci].fd,
+                                 recv_buf, buf_sz, &opcode);
+
+    if (plen < 0 || opcode == WS_OP_CLOSE) {
+        fprintf(stderr, "[foxglove] client disconnected (slot %d)\n", ci);
+        fg_close_client(&br->clients[ci]);
+    } else if (opcode == WS_OP_TEXT && plen > 0) {
+        fg_handle_client_message(&br->clients[ci],
+                                (const char *)recv_buf, (size_t)plen);
+    } else if (opcode == WS_OP_PING) {
+        ws_send_frame(br->clients[ci].fd, WS_OP_PONG,
+                      recv_buf, (size_t)plen);
+    }
+}
+
+static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
+                                     uint8_t *msg_buf, size_t msg_buf_sz,
+                                     char *json_buf, size_t json_buf_sz) {
+    size_t out_len = 0;
+    int rc = transport_read_next(&br->subs[ch],
+                                 msg_buf, msg_buf_sz, &out_len);
+    if (rc != 0 || out_len == 0) return;
+
+    int jlen = fg_serializers[ch](msg_buf, json_buf, json_buf_sz);
+    if (jlen <= 0 || jlen >= (int)json_buf_sz) return;
+
+    uint64_t ts = 0;
+    if (out_len >= sizeof(sensor_header_t)) {
+        const sensor_header_t *hdr = (const sensor_header_t *)msg_buf;
+        ts = hdr->timestamp_ns;
+    }
+
+    uint32_t ch_id = br->channels[ch].id;
+    for (int ci = 0; ci < FG_MAX_CLIENTS; ci++) {
+        if (!br->clients[ci].alive) continue;
+
+        const fg_subscription_t *sub = fg_find_sub(&br->clients[ci], ch_id);
+        if (!sub) continue;
+
+        if (fg_send_message(br->clients[ci].fd, sub->sub_id,
+                            ts, json_buf, (size_t)jlen) != 0) {
+            fprintf(stderr, "[foxglove] send failed, dropping client %d\n",
+                    ci);
+            fg_close_client(&br->clients[ci]);
+        }
+    }
+}
+
 static void *bridge_thread(void *arg) {
     foxglove_bridge_t *br = arg;
 
@@ -72,83 +146,21 @@ static void *bridge_thread(void *arg) {
         int ready = poll(pfds, (nfds_t)nfds, 10);
 
         if (ready > 0 && (pfds[0].revents & POLLIN)) {
-            int cfd = accept(br->listen_fd, NULL, NULL);
-            if (cfd >= 0) {
-                int slot = -1;
-                for (int i = 0; i < FG_MAX_CLIENTS; i++) {
-                    if (!br->clients[i].alive) { slot = i; break; }
-                }
-
-                if (slot < 0 || ws_accept_handshake(cfd) != 0) {
-                    close(cfd);
-                } else {
-                    br->clients[slot].fd       = cfd;
-                    br->clients[slot].alive     = true;
-                    br->clients[slot].num_subs  = 0;
-
-                    fg_send_server_info(cfd);
-                    fg_send_advertise(cfd, br->channels, br->num_channels);
-
-                    fprintf(stderr, "[foxglove] client connected (slot %d)\n",
-                            slot);
-                }
-            }
+            bridge_accept_connection(br);
         }
 
         int pfd_idx = 1;
         for (int i = 0; i < FG_MAX_CLIENTS; i++) {
             if (!br->clients[i].alive) continue;
-
             if (pfd_idx < nfds && (pfds[pfd_idx].revents & POLLIN)) {
-                uint8_t opcode = 0;
-                ssize_t plen = ws_recv_frame(br->clients[i].fd,
-                                             recv_buf, sizeof(recv_buf),
-                                             &opcode);
-                if (plen < 0 || opcode == WS_OP_CLOSE) {
-                    fprintf(stderr, "[foxglove] client disconnected (slot %d)\n",
-                            i);
-                    fg_close_client(&br->clients[i]);
-                } else if (opcode == WS_OP_TEXT && plen > 0) {
-                    fg_handle_client_message(&br->clients[i],
-                                          (const char *)recv_buf, (size_t)plen);
-                } else if (opcode == WS_OP_PING) {
-                    ws_send_frame(br->clients[i].fd, WS_OP_PONG,
-                                  recv_buf, (size_t)plen);
-                }
+                bridge_handle_client_data(br, i, recv_buf, sizeof(recv_buf));
             }
             pfd_idx++;
         }
 
         for (int ch = 0; ch < br->num_channels; ch++) {
-            size_t out_len = 0;
-            int rc = transport_read_next(&br->subs[ch],
-                                         msg_buf, sizeof(msg_buf),
-                                         &out_len);
-            if (rc != 0 || out_len == 0) continue;
-
-            int jlen = fg_serializers[ch](msg_buf, json_buf, sizeof(json_buf));
-            if (jlen <= 0 || jlen >= (int)sizeof(json_buf)) continue;
-
-            uint64_t ts = 0;
-            if (out_len >= sizeof(sensor_header_t)) {
-                const sensor_header_t *hdr = (const sensor_header_t *)msg_buf;
-                ts = hdr->timestamp_ns;
-            }
-
-            uint32_t ch_id = br->channels[ch].id;
-            for (int ci = 0; ci < FG_MAX_CLIENTS; ci++) {
-                if (!br->clients[ci].alive) continue;
-
-                const fg_subscription_t *sub = fg_find_sub(&br->clients[ci], ch_id);
-                if (!sub) continue;
-
-                if (fg_send_message(br->clients[ci].fd, sub->sub_id,
-                                    ts, json_buf, (size_t)jlen) != 0) {
-                    fprintf(stderr, "[foxglove] send failed, dropping "
-                                    "client %d\n", ci);
-                    fg_close_client(&br->clients[ci]);
-                }
-            }
+            bridge_broadcast_channel(br, ch, msg_buf, sizeof(msg_buf),
+                                     json_buf, sizeof(json_buf));
         }
     }
 

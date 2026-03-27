@@ -1,36 +1,37 @@
 #include "foxglove/sha1.h"
 
+#include <stddef.h>
 #include <string.h>
 
 static void sha1_transform(uint32_t state[5], const uint8_t block[64]) {
     uint32_t w[80];
     for (int i = 0; i < 16; i++) {
-        w[i] = ((uint32_t)block[4*i] << 24)
-             | ((uint32_t)block[4*i+1] << 16)
-             | ((uint32_t)block[4*i+2] << 8)
-             | ((uint32_t)block[4*i+3]);
+        w[i] = ((uint32_t)block[4 * (ptrdiff_t)i] << 24)
+             | ((uint32_t)block[4 * (ptrdiff_t)i + 1] << 16)
+             | ((uint32_t)block[4 * (ptrdiff_t)i + 2] << 8)
+             | ((uint32_t)block[4 * (ptrdiff_t)i + 3]);
     }
     for (int i = 16; i < 80; i++) {
         uint32_t t = w[i-3] ^ w[i-8] ^ w[i-14] ^ w[i-16];
         w[i] = (t << 1) | (t >> 31);
     }
 
-    uint32_t a = state[0], b = state[1], c = state[2];
-    uint32_t d = state[3], e = state[4];
+    uint32_t sa = state[0], sb = state[1], sc = state[2];
+    uint32_t d = state[3], se = state[4];
 
     for (int i = 0; i < 80; i++) {
         uint32_t f = 0;
         uint32_t k = 0;
-        if      (i < 20) { f = (b & c) | (~b & d);           k = 0x5A827999U; }
-        else if (i < 40) { f = b ^ c ^ d;                    k = 0x6ED9EBA1U; }
-        else if (i < 60) { f = (b & c) | (b & d) | (c & d);  k = 0x8F1BBCDCU; }
-        else              { f = b ^ c ^ d;                    k = 0xCA62C1D6U; }
+        if      (i < 20) { f = (sb & sc) | (~sb & d);           k = 0x5A827999U; }
+        else if (i < 40) { f = sb ^ sc ^ d;                    k = 0x6ED9EBA1U; }
+        else if (i < 60) { f = (sb & sc) | (sb & d) | (sc & d);  k = 0x8F1BBCDCU; }
+        else              { f = sb ^ sc ^ d;                    k = 0xCA62C1D6U; }
 
-        uint32_t tmp = ((a << 5) | (a >> 27)) + f + e + k + w[i];
-        e = d; d = c; c = (b << 30) | (b >> 2); b = a; a = tmp;
+        uint32_t tmp = ((sa << 5) | (sa >> 27)) + f + se + k + w[i];
+        se = d; d = sc; sc = (sb << 30) | (sb >> 2); sb = sa; sa = tmp;
     }
-    state[0] += a; state[1] += b; state[2] += c;
-    state[3] += d; state[4] += e;
+    state[0] += sa; state[1] += sb; state[2] += sc;
+    state[3] += d; state[4] += se;
 }
 
 void fg_sha1(const uint8_t *data, size_t len, uint8_t out[20]) {

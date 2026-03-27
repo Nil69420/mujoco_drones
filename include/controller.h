@@ -10,7 +10,9 @@ void ctrl_update(sim_t *sim);
 void quat_to_euler(const double q[4], double *roll, double *pitch, double *yaw);
 
 static inline double clampd(double v, double lo, double hi) {
-    return v < lo ? lo : (v > hi ? hi : v);
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
 }
 
 #endif

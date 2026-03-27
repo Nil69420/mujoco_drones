@@ -5,9 +5,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define FG_DEFAULT_PORT   8765
-#define FG_MAX_CLIENTS    4
-#define FG_MAX_CHANNELS   16
+enum {
+    FG_DEFAULT_PORT  = 8765,
+    FG_MAX_CLIENTS   = 4,
+    FG_MAX_CHANNELS  = 16,
+};
 
 typedef struct foxglove_bridge foxglove_bridge_t;
 
