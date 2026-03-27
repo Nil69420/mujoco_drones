@@ -111,6 +111,13 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
                                  msg_buf, msg_buf_sz, &out_len);
     if (rc != 0 || out_len == 0) return;
 
+    /* Debug: print once per ~500 messages so the log doesn't flood */
+    static unsigned long dbg_count[FG_MAX_CHANNELS];
+    if (ch < FG_MAX_CHANNELS && ++dbg_count[ch] % 500 == 1) {
+        fprintf(stderr, "[fg_bridge] ch=%d (%s): read %zu bytes (msg #%lu)\n",
+                ch, br->channels[ch].topic, out_len, dbg_count[ch]);
+    }
+
     int jlen = fg_serializers[ch](msg_buf, json_buf, json_buf_sz);
     if (jlen <= 0 || jlen >= (int)json_buf_sz) return;
 

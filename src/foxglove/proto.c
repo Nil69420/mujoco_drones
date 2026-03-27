@@ -89,13 +89,32 @@ void fg_handle_client_message(fg_client_t *client, const char *msg,
     memcpy(buf, msg, copy);
     buf[copy] = '\0';
 
+    fprintf(stderr, "[fg_proto] recv %zu bytes: %.300s\n", len, buf);
+
     if (strstr(buf, "\"subscribe\"")) {
-        uint32_t sub_id = fg_parse_uint(buf, "\"id\"");
-        uint32_t ch_id  = fg_parse_uint(buf, "\"channelId\"");
-        if (sub_id > 0 && ch_id > 0 && client->num_subs < FG_MAX_SUBS) {
-            client->subs[client->num_subs].sub_id     = sub_id;
-            client->subs[client->num_subs].channel_id = ch_id;
-            client->num_subs++;
+        /* Foxglove Studio may send all subscriptions in one message:
+         * {"op":"subscribe","subscriptions":[{"id":1,"channelId":1},...]}
+         * Walk every {…} object in the array so all channels are registered. */
+        const char *arr = strchr(buf, '[');
+        const char *p   = arr ? arr + 1 : buf;
+        while (*p && *p != ']') {
+            const char *obj = strchr(p, '{');
+            if (!obj) break;
+            const char *end = strchr(obj, '}');
+            if (!end) break;
+
+            uint32_t sub_id = fg_parse_uint(obj, "\"id\"");
+            uint32_t ch_id  = fg_parse_uint(obj, "\"channelId\"");
+            if (sub_id > 0 && ch_id > 0 && client->num_subs < FG_MAX_SUBS) {
+                client->subs[client->num_subs].sub_id     = sub_id;
+                client->subs[client->num_subs].channel_id = ch_id;
+                client->num_subs++;
+                fprintf(stderr,
+                        "[fg_proto] subscribed: sub_id=%u channelId=%u "
+                        "(total=%d)\n",
+                        sub_id, ch_id, client->num_subs);
+            }
+            p = end + 1;
         }
     } else if (strstr(buf, "\"unsubscribe\"")) {
         const char *pos = strstr(buf, "\"subscriptionIds\"");

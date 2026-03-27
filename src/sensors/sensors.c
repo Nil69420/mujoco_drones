@@ -357,31 +357,55 @@ void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
                    setpoint_t *target) {
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
 
+    /* Debug counter: print publish activity every 500 IMU steps (~5 s) */
+    static unsigned long dbg_step;
+    bool dbg_print = (++dbg_step % 500 == 1);
+
     if (mgr->config.enable.imu && mgr->inv_imu > 0 && --mgr->dec_imu <= 0) {
         mgr->dec_imu = mgr->inv_imu;
         read_imu(mgr, data, t_ns);
+        if (dbg_print) {
+            fprintf(stderr, "[sensors] step %lu: IMU published (seq=%u)\n",
+                    dbg_step, mgr->seq_imu - 1);
+        }
     }
 
     if (mgr->config.enable.gnss && mgr->inv_gnss > 0 && --mgr->dec_gnss <= 0) {
         mgr->dec_gnss = mgr->inv_gnss;
         read_gnss(mgr, data, t_ns);
+        if (dbg_print) {
+            fprintf(stderr, "[sensors] step %lu: GNSS published (seq=%u)\n",
+                    dbg_step, mgr->seq_gnss - 1);
+        }
     }
 
     if (mgr->config.enable.baro && mgr->inv_baro > 0 && --mgr->dec_baro <= 0) {
         mgr->dec_baro = mgr->inv_baro;
         read_baro(mgr, data, t_ns);
+        if (dbg_print) {
+            fprintf(stderr, "[sensors] step %lu: Baro published (seq=%u)\n",
+                    dbg_step, mgr->seq_baro - 1);
+        }
     }
 
     if (mgr->config.enable.lidar && mgr->inv_lidar > 0 &&
         --mgr->dec_lidar <= 0) {
         mgr->dec_lidar = mgr->inv_lidar;
         read_lidar(mgr, model, data, t_ns);
+        if (dbg_print) {
+            fprintf(stderr, "[sensors] step %lu: LiDAR published (seq=%u)\n",
+                    dbg_step, mgr->seq_lidar - 1);
+        }
     }
 
     if (mgr->config.enable.infrared && mgr->inv_infrared > 0 &&
         --mgr->dec_infrared <= 0) {
         mgr->dec_infrared = mgr->inv_infrared;
         read_infrared(mgr, model, data, t_ns);
+        if (dbg_print) {
+            fprintf(stderr, "[sensors] step %lu: IR published (seq=%u)\n",
+                    dbg_step, mgr->seq_infrared - 1);
+        }
     }
 
     if (mgr->config.enable.camera && mgr->inv_camera > 0 &&
