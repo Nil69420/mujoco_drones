@@ -21,6 +21,7 @@ find_package(glfw3 QUIET)
 find_package(OpenGL QUIET)
 
 option(ENABLE_IPC "Enable IPC transport (requires renoir)" ON)
+option(ENABLE_FOXGLOVE "Enable Foxglove WebSocket bridge (requires IPC)" OFF)
 option(ENABLE_ASAN "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 
@@ -55,6 +56,10 @@ if(ENABLE_IPC)
         src/sensors/sensors.c
         src/transport/transport_renoir.c
     )
+
+    if(ENABLE_FOXGLOVE)
+        list(APPEND SOURCES src/foxglove/foxglove.c)
+    endif()
 endif()
 
 add_executable(hummingbird ${SOURCES})
@@ -109,6 +114,12 @@ if(ENABLE_IPC)
     target_link_libraries(hummingbird PRIVATE renoir)
     target_compile_definitions(hummingbird PRIVATE ENABLE_IPC)
 
+    if(ENABLE_FOXGLOVE)
+        target_link_libraries(hummingbird PRIVATE pthread)
+        target_compile_definitions(hummingbird PRIVATE ENABLE_FOXGLOVE)
+        message(STATUS "Foxglove WebSocket bridge enabled")
+    endif()
+
     set_target_properties(hummingbird PROPERTIES
         BUILD_RPATH "${RENOIR_LIB_DIR};${MUJOCO_DIR}/lib"
         INSTALL_RPATH "${RENOIR_LIB_DIR};${MUJOCO_DIR}/lib"
@@ -153,7 +164,6 @@ if(ENABLE_TSAN)
     target_link_options(hummingbird PRIVATE -fsanitize=thread)
 endif()
 
-# ---- Lint target (clang-tidy) ----
 find_program(CLANG_TIDY clang-tidy)
 if(CLANG_TIDY)
     set(TIDY_SRCS "")

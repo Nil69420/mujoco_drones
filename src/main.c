@@ -9,6 +9,9 @@
 #ifdef ENABLE_IPC
 #include "transport/transport_renoir.h"
 #include "sensors/sensors.h"
+#ifdef ENABLE_FOXGLOVE
+#include "foxglove/foxglove.h"
+#endif
 #endif
 
 static void print_usage(const char *prog) {
@@ -175,6 +178,14 @@ int main(int argc, char **argv) {
             }
         }
     }
+
+#ifdef ENABLE_FOXGLOVE
+    foxglove_bridge_t *fg = NULL;
+    if (sim.ipc_enabled) {
+        fg = foxglove_create(&sim.transport, FG_DEFAULT_PORT);
+        if (fg) foxglove_start(fg);
+    }
+#endif
 #endif
 
     int rc = 0;
@@ -199,6 +210,9 @@ int main(int argc, char **argv) {
 
 #ifdef ENABLE_IPC
     if (sim.ipc_enabled) {
+#ifdef ENABLE_FOXGLOVE
+        foxglove_destroy(fg);
+#endif
         sensor_cleanup(&sim.sensors);
         transport_shutdown(&sim.transport);
     }
