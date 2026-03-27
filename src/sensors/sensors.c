@@ -414,6 +414,8 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
         mjv_defaultScene(&mgr->cam_scene);
         mjv_makeScene(model, &mgr->cam_scene, 1000);
         mjr_defaultContext(&mgr->cam_context);
+        mgr->cam_context.offWidth  = w;
+        mgr->cam_context.offHeight = h;
         mjr_makeContext(model, &mgr->cam_context, mjFONTSCALE_100);
 
         mjv_defaultCamera(&mgr->cam_view);
@@ -428,6 +430,7 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     mjrRect vp = { 0, 0, w, h };
     mjv_updateScene(model, data, &mgr->cam_opt, NULL,
                     &mgr->cam_view, mjCAT_ALL, &mgr->cam_scene);
+    mjr_setBuffer(mjFB_OFFSCREEN, &mgr->cam_context);
     mjr_render(vp, &mgr->cam_scene, &mgr->cam_context);
     mjr_readPixels(mgr->rgb_buf, mgr->depth_buf, vp, &mgr->cam_context);
 
