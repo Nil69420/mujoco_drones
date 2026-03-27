@@ -22,11 +22,12 @@ Checks: >
   -hicpp-braces-around-statements,
   -hicpp-signed-bitwise,
   -google-readability-braces-around-statements,
-  -clang-diagnostic-unknown-warning-option
+  -clang-diagnostic-unknown-warning-option,
+  -clang-analyzer-optin.performance.Padding
 
 WarningsAsErrors: '*'
 
-HeaderFilterRegex: 'src/.*\.h$'
+HeaderFilterRegex: 'include/.*\.h$'
 
 CheckOptions:
   - key: readability-braces-around-statements.ShortStatementLines

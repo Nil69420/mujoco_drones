@@ -7,22 +7,31 @@ BUILD_DIR="$SCRIPT_DIR/build"
 
 BUILD_TYPE="${1:-release}"
 ENABLE_IPC="${2:-ON}"
+ENABLE_FOXGLOVE="${3:-ON}"
 
 usage() {
-    echo "Usage: $0 [debug|release] [ON|OFF]"
+    echo "Usage: $0 [debug|release|lint] [ON|OFF] [ON|OFF]"
     echo ""
-    echo "  arg 1: build type   (default: release)"
-    echo "  arg 2: ENABLE_IPC   (default: ON)"
+    echo "  arg 1: build type / lint      (default: release)"
+    echo "  arg 2: ENABLE_IPC             (default: ON)"
+    echo "  arg 3: ENABLE_FOXGLOVE        (default: ON)"
     echo ""
     echo "Examples:"
-    echo "  $0                  # release + IPC"
-    echo "  $0 debug            # debug + IPC"
+    echo "  $0                  # release + IPC + Foxglove"
+    echo "  $0 debug            # debug + IPC + Foxglove"
     echo "  $0 release OFF      # release, no IPC"
+    echo "  $0 lint             # build + run clang-tidy static analysis"
     exit 1
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
+fi
+
+RUN_LINT=false
+if [[ "$BUILD_TYPE" == "lint" ]]; then
+    RUN_LINT=true
+    BUILD_TYPE="release"
 fi
 
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -68,9 +77,16 @@ cd "$BUILD_DIR"
 
 cmake "$SCRIPT_DIR" \
     -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-    -DENABLE_IPC="$ENABLE_IPC"
+    -DENABLE_IPC="$ENABLE_IPC" \
+    -DENABLE_FOXGLOVE="$ENABLE_FOXGLOVE"
 
 make -j"$NPROC"
+
+if [[ "$RUN_LINT" == true ]]; then
+    echo ""
+    echo "=== Running static analysis (clang-tidy) ==="
+    make lint
+fi
 
 echo ""
 echo "=== Done ==="

@@ -1,5 +1,5 @@
-#include "sensors.h"
-#include "noise.h"
+#include "sensors/sensors.h"
+#include "sensors/noise.h"
 
 #include <math.h>
 #include <stdio.h>

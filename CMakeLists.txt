@@ -59,7 +59,14 @@ if(ENABLE_IPC)
     )
 
     if(ENABLE_FOXGLOVE)
-        list(APPEND SOURCES src/foxglove/foxglove.c)
+        list(APPEND SOURCES
+            src/foxglove/sha1.c
+            src/foxglove/base64.c
+            src/foxglove/ws.c
+            src/foxglove/proto.c
+            src/foxglove/serialize.c
+            src/foxglove/bridge.c
+        )
     endif()
 endif()
 
@@ -85,7 +92,7 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 target_include_directories(hummingbird PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/include
     ${MUJOCO_DIR}/include
 )
 

@@ -5,9 +5,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "sensor_types.h"
-#include "../transport/transport.h"
-#include "../setpoint.h"
+#include "sensors/sensor_types.h"
+#include "transport/transport.h"
+#include "setpoint.h"
 
 typedef struct {
     bool imu;

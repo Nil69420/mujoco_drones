@@ -1,7 +1,7 @@
 #ifndef MUJOCO_DRONES_FOXGLOVE_H
 #define MUJOCO_DRONES_FOXGLOVE_H
 
-#include "../transport/transport.h"
+#include "transport/transport.h"
 #include <stdbool.h>
 #include <stdint.h>
 

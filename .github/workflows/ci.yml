@@ -83,6 +83,7 @@ jobs:
           cmake .. \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DENABLE_IPC=ON \
+            -DENABLE_FOXGLOVE=ON \
             -DRENOIR_DIR=${{ github.workspace }}/renoir \
             ${{ matrix.cmake_extra }}
 
@@ -149,6 +150,7 @@ jobs:
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_IPC=ON \
+            -DENABLE_FOXGLOVE=ON \
             -DRENOIR_DIR=${{ github.workspace }}/renoir
 
       - name: Run clang-tidy
