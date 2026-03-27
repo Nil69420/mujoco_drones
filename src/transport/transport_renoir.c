@@ -17,7 +17,7 @@ typedef struct {
     RenoirTopicManagerHandle topic_mgr;
 } renoir_ctx_t;
 
-#define LARGE_PAYLOAD_THRESHOLD  4096
+enum { LARGE_PAYLOAD_THRESHOLD = 4096 };
 
 static int renoir_tp_init(transport_t *tp) {
     renoir_ctx_t *ctx = calloc(1, sizeof(renoir_ctx_t));
@@ -55,7 +55,7 @@ static int renoir_tp_advertise(transport_t *tp, const char *topic,
     struct RenoirTopicOptions opts = {
         .pattern             = 0,
         .ring_capacity       = large ? 4 : 64,
-        .max_payload_size    = large ? LARGE_PAYLOAD_THRESHOLD : max_msg_size + 256,
+        .max_payload_size    = max_msg_size + 256,
         .use_shared_pool     = large,
         .shared_pool_threshold = large ? LARGE_PAYLOAD_THRESHOLD : 0,
         .enable_notifications = true,
@@ -95,7 +95,7 @@ static int renoir_tp_subscribe(transport_t *tp, const char *topic,
     struct RenoirTopicOptions opts = {
         .pattern             = 0,
         .ring_capacity       = large ? 4 : 64,
-        .max_payload_size    = large ? LARGE_PAYLOAD_THRESHOLD : max_msg_size + 256,
+        .max_payload_size    = max_msg_size + 256,
         .use_shared_pool     = large,
         .shared_pool_threshold = large ? LARGE_PAYLOAD_THRESHOLD : 0,
         .enable_notifications = true,

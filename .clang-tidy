@@ -27,7 +27,7 @@ Checks: >
 
 WarningsAsErrors: '*'
 
-HeaderFilterRegex: 'include/.*\.h$'
+HeaderFilterRegex: 'mujoco_drones/include/.*\.h$'
 
 CheckOptions:
   - key: readability-braces-around-statements.ShortStatementLines

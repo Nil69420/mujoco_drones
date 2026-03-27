@@ -2,6 +2,7 @@
 #include "sensors/noise.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,42 +28,42 @@ static int resolve_sensor_adr(const mjModel *m, const char *name) {
 }
 
 sensor_config_t sensor_default_config(void) {
-    sensor_config_t c = {0};
+    sensor_config_t cfg = {0};
 
-    c.enable.imu      = true;
-    c.enable.gnss     = true;
-    c.enable.baro     = true;
-    c.enable.lidar    = true;
-    c.enable.camera   = true;
-    c.enable.infrared = true;
+    cfg.enable.imu      = true;
+    cfg.enable.gnss     = true;
+    cfg.enable.baro     = true;
+    cfg.enable.lidar    = true;
+    cfg.enable.camera   = true;
+    cfg.enable.infrared = true;
 
-    c.imu_rate      = 1000.0;
-    c.gnss_rate     = 10.0;
-    c.baro_rate     = 50.0;
-    c.lidar_rate    = 30.0;
-    c.camera_rate   = 30.0;
-    c.infrared_rate = 100.0;
+    cfg.imu_rate      = 1000.0;
+    cfg.gnss_rate     = 10.0;
+    cfg.baro_rate     = 50.0;
+    cfg.lidar_rate    = 30.0;
+    cfg.camera_rate   = 30.0;
+    cfg.infrared_rate = 100.0;
 
-    c.lidar_num_rays  = 36;
-    c.lidar_range_max = 30.0F;
+    cfg.lidar_num_rays  = 36;
+    cfg.lidar_range_max = 30.0F;
 
-    c.camera_width  = 320;
-    c.camera_height = 240;
-    c.camera_fov    = 60.0F * (float)M_PI / 180.0F;
+    cfg.camera_width  = 320;
+    cfg.camera_height = 240;
+    cfg.camera_fov    = 60.0F * (float)M_PI / 180.0F;
 
-    c.gnss_origin_lat = 47.3667;
-    c.gnss_origin_lon = 8.5500;
-    c.gnss_origin_alt = 500.0;
+    cfg.gnss_origin_lat = 47.3667;
+    cfg.gnss_origin_lon = 8.5500;
+    cfg.gnss_origin_alt = 500.0;
 
-    c.imu_accel_noise        = 0.02;
-    c.imu_gyro_noise         = 0.001;
-    c.imu_gyro_bias_diffusion = 0.0001;
-    c.gnss_pos_noise         = 1.5;
-    c.baro_alt_noise         = 0.5;
-    c.lidar_range_noise      = 0.01;
-    c.ir_range_noise         = 0.005;
+    cfg.imu_accel_noise        = 0.02;
+    cfg.imu_gyro_noise         = 0.001;
+    cfg.imu_gyro_bias_diffusion = 0.0001;
+    cfg.gnss_pos_noise         = 1.5;
+    cfg.baro_alt_noise         = 0.5;
+    cfg.lidar_range_noise      = 0.01;
+    cfg.ir_range_noise         = 0.005;
 
-    return c;
+    return cfg;
 }
 
 static int rate_to_interval(double rate_hz, double timestep) {
@@ -151,18 +152,19 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     if (mgr->config.enable.camera) {
         size_t rgb_sz   = (size_t)config->camera_width *
                           config->camera_height * 3;
+        size_t rgb_total = sizeof(sensor_camera_rgb_hdr_t) + rgb_sz;
         size_t depth_sz = (size_t)config->camera_width *
                           config->camera_height * sizeof(float);
 
         transport_advertise(tp, TOPIC_CAMERA_META,
                             sizeof(sensor_camera_meta_t),
                             &mgr->pub_camera_meta);
-        transport_advertise(tp, TOPIC_CAMERA_RGB,   rgb_sz,
+        transport_advertise(tp, TOPIC_CAMERA_RGB,   rgb_total,
                             &mgr->pub_camera_rgb);
         transport_advertise(tp, TOPIC_CAMERA_DEPTH, depth_sz,
                             &mgr->pub_camera_depth);
 
-        mgr->rgb_buf   = malloc(rgb_sz);
+        mgr->rgb_buf   = malloc(rgb_total);
         mgr->depth_buf = malloc(depth_sz);
         if (!mgr->rgb_buf || !mgr->depth_buf) {
             fprintf(stderr, "[sensors] ERROR: failed to allocate camera "
@@ -174,7 +176,7 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     transport_subscribe(tp, TOPIC_COMMAND,
                         sizeof(command_setpoint_t), &mgr->sub_command);
 
-    noise_seed(42);
+    noise_seed(&mgr->rng, 42);
 
     printf("[sensors] initialized: IMU=%d GNSS=%d Baro=%d LiDAR=%d "
            "Camera=%d IR=%d\n",
@@ -193,13 +195,13 @@ static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     double dt = 0.001;
 
     for (int i = 0; i < 3; i++) {
-        double bias_g = noise_random_walk(&mgr->gyro_bias[i],
+        double bias_g = noise_random_walk(&mgr->rng, &mgr->gyro_bias[i],
                                           mgr->config.imu_gyro_bias_diffusion,
                                           dt);
         msg.accel[i] = data->sensordata[mgr->adr_accel + i]
-                     + noise_gaussian(mgr->config.imu_accel_noise);
+                     + noise_gaussian(&mgr->rng, mgr->config.imu_accel_noise);
         msg.gyro[i]  = data->sensordata[mgr->adr_gyro + i]
-                     + noise_gaussian(mgr->config.imu_gyro_noise) + bias_g;
+                     + noise_gaussian(&mgr->rng, mgr->config.imu_gyro_noise) + bias_g;
     }
 
     if (mgr->adr_heading >= 0) {
@@ -244,9 +246,9 @@ static void read_gnss(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     msg.hdop           = 1.2;
 
     double noise_m = mgr->config.gnss_pos_noise;
-    msg.latitude  += noise_gaussian(noise_m / R_EARTH) * (180.0 / M_PI);
-    msg.longitude += noise_gaussian(noise_m / R_EARTH) * (180.0 / M_PI);
-    msg.altitude  += noise_gaussian(noise_m);
+    msg.latitude  += noise_gaussian(&mgr->rng, noise_m / R_EARTH) * (180.0 / M_PI);
+    msg.longitude += noise_gaussian(&mgr->rng, noise_m / R_EARTH) * (180.0 / M_PI);
+    msg.altitude  += noise_gaussian(&mgr->rng, noise_m);
 
     transport_publish(&mgr->pub_gnss, &msg, sizeof(msg));
 }
@@ -259,7 +261,7 @@ static void read_baro(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
 
     double alt = data->sensordata[mgr->adr_pos + 2]
                + mgr->config.gnss_origin_alt
-               + noise_gaussian(mgr->config.baro_alt_noise);
+               + noise_gaussian(&mgr->rng, mgr->config.baro_alt_noise);
 
     msg.altitude_m    = alt;
     msg.temperature_c = 15.0;
@@ -284,8 +286,8 @@ static void read_lidar(sensor_mgr_t *mgr, const mjModel *model,
     msg.range_min = 0.1F;
     msg.range_max = mgr->config.lidar_range_max;
 
-    const double *site_pos = &data->site_xpos[mgr->site_lidar * 3];
-    const double *site_mat = &data->site_xmat[mgr->site_lidar * 9];
+    const double *site_pos = &data->site_xpos[(ptrdiff_t)mgr->site_lidar * 3];
+    const double *site_mat = &data->site_xmat[(ptrdiff_t)mgr->site_lidar * 9];
 
     float angle_step = (msg.angle_max - msg.angle_min) / (float)nrays;
 
@@ -294,10 +296,10 @@ static void read_lidar(sensor_mgr_t *mgr, const mjModel *model,
         double dir_local[3] = { (double)cosf(angle), (double)sinf(angle), 0.0 };
 
         double dir_world[3];
-        for (int r = 0; r < 3; r++) {
-            dir_world[r] = site_mat[3*r + 0] * dir_local[0]
-                         + site_mat[3*r + 1] * dir_local[1]
-                         + site_mat[3*r + 2] * dir_local[2];
+        for (int row = 0; row < 3; row++) {
+            dir_world[row] = site_mat[3*row + 0] * dir_local[0]
+                           + site_mat[3*row + 1] * dir_local[1]
+                           + site_mat[3*row + 2] * dir_local[2];
         }
 
         int geomid = -1;
@@ -306,7 +308,7 @@ static void read_lidar(sensor_mgr_t *mgr, const mjModel *model,
 
         if (dist >= 0 && dist <= (double)msg.range_max) {
             msg.ranges[i] = (float)dist
-                          + (float)noise_gaussian(mgr->config.lidar_range_noise);
+                          + (float)noise_gaussian(&mgr->rng, mgr->config.lidar_range_noise);
         } else {
             msg.ranges[i] = -1.0F;
         }
@@ -328,8 +330,8 @@ static void read_infrared(sensor_mgr_t *mgr, const mjModel *model,
     msg.range_max  = 5.0F;
     msg.beam_angle = 0.05F;
 
-    const double *site_pos = &data->site_xpos[mgr->site_infrared * 3];
-    const double *site_mat = &data->site_xmat[mgr->site_infrared * 9];
+    const double *site_pos = &data->site_xpos[(ptrdiff_t)mgr->site_infrared * 3];
+    const double *site_mat = &data->site_xmat[(ptrdiff_t)mgr->site_infrared * 9];
 
     double dir_world[3] = {
         site_mat[3*0 + 2],
@@ -343,7 +345,7 @@ static void read_infrared(sensor_mgr_t *mgr, const mjModel *model,
 
     if (dist >= 0 && dist <= (double)msg.range_max) {
         msg.range_m = (float)dist
-                    + (float)noise_gaussian(mgr->config.ir_range_noise);
+                    + (float)noise_gaussian(&mgr->rng, mgr->config.ir_range_noise);
     } else {
         msg.range_m = -1.0F;
     }
@@ -432,11 +434,22 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
                     &mgr->cam_view, mjCAT_ALL, &mgr->cam_scene);
     mjr_setBuffer(mjFB_OFFSCREEN, &mgr->cam_context);
     mjr_render(vp, &mgr->cam_scene, &mgr->cam_context);
-    mjr_readPixels(mgr->rgb_buf, mgr->depth_buf, vp, &mgr->cam_context);
+
+    uint8_t *pixels = mgr->rgb_buf + sizeof(sensor_camera_rgb_hdr_t);
+    mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
 
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
     size_t rgb_sz   = (size_t)(unsigned)w * (unsigned)h * 3;
     size_t depth_sz = (size_t)(unsigned)w * (unsigned)h * sizeof(float);
+
+    /* Fill camera RGB header so downstream consumers (bridge) have metadata */
+    sensor_camera_rgb_hdr_t *rgb_hdr = (sensor_camera_rgb_hdr_t *)mgr->rgb_buf;
+    rgb_hdr->header.timestamp_ns = t_ns;
+    rgb_hdr->header.sequence     = mgr->seq_camera;
+    rgb_hdr->header.sensor_id    = SENSOR_ID_CAMERA;
+    rgb_hdr->width    = (uint16_t)w;
+    rgb_hdr->height   = (uint16_t)h;
+    rgb_hdr->channels = 3;
 
     sensor_camera_meta_t meta = {0};
     meta.header.timestamp_ns = t_ns;
@@ -450,8 +463,9 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     meta.depth_size  = (uint32_t)depth_sz;
     meta.depth_scale = 1.0F;
 
-    transport_publish(&mgr->pub_camera_meta,  &meta,          sizeof(meta));
-    transport_publish(&mgr->pub_camera_rgb,   mgr->rgb_buf,   rgb_sz);
+    transport_publish(&mgr->pub_camera_meta,  &meta,        sizeof(meta));
+    transport_publish(&mgr->pub_camera_rgb,   mgr->rgb_buf,
+                      sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
     transport_publish(&mgr->pub_camera_depth, mgr->depth_buf, depth_sz);
 }
 

@@ -45,7 +45,7 @@ typedef struct {
     double altitude_m;
 } sensor_baro_t;
 
-#define LIDAR_MAX_RAYS 360
+enum { LIDAR_MAX_RAYS = 360 };
 
 typedef struct {
     sensor_header_t header;
@@ -69,6 +69,15 @@ typedef struct {
     uint32_t depth_size;
     float    depth_scale;
 } sensor_camera_meta_t;
+
+typedef struct {
+    sensor_header_t header;
+    uint16_t width;
+    uint16_t height;
+    uint8_t  channels;
+    uint8_t  _pad[3];
+    /* Raw pixel bytes (width * height * channels) follow this header */
+} sensor_camera_rgb_hdr_t;
 
 typedef struct {
     sensor_header_t header;

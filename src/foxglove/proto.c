@@ -75,11 +75,11 @@ int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
 }
 
 uint32_t fg_parse_uint(const char *s, const char *key) {
-    const char *p = strstr(s, key);
-    if (!p) return 0;
-    p += strlen(key);
-    while (*p && (*p == ':' || *p == ' ' || *p == '"')) p++;
-    return (uint32_t)strtoul(p, NULL, 10);
+    const char *pos = strstr(s, key);
+    if (!pos) return 0;
+    pos += strlen(key);
+    while (*pos && (*pos == ':' || *pos == ' ' || *pos == '"')) pos++;
+    return (uint32_t)strtoul(pos, NULL, 10);
 }
 
 void fg_handle_client_message(fg_client_t *client, const char *msg,
@@ -98,23 +98,23 @@ void fg_handle_client_message(fg_client_t *client, const char *msg,
             client->num_subs++;
         }
     } else if (strstr(buf, "\"unsubscribe\"")) {
-        const char *p = strstr(buf, "\"subscriptionIds\"");
-        if (p) {
-            p = strchr(p, '[');
-            if (p) {
-                p++;
-                while (*p && *p != ']') {
+        const char *pos = strstr(buf, "\"subscriptionIds\"");
+        if (pos) {
+            pos = strchr(pos, '[');
+            if (pos) {
+                pos++;
+                while (*pos && *pos != ']') {
                     char *end = NULL;
-                    uint32_t sub_id = (uint32_t)strtoul(p, &end, 10);
-                    if (end == p) break;
+                    uint32_t sub_id = (uint32_t)strtoul(pos, &end, 10);
+                    if (end == pos) break;
                     for (int i = 0; i < client->num_subs; i++) {
                         if (client->subs[i].sub_id == sub_id) {
                             client->subs[i] = client->subs[--client->num_subs];
                             break;
                         }
                     }
-                    p = end;
-                    while (*p == ',' || *p == ' ') p++;
+                    pos = end;
+                    while (*pos == ',' || *pos == ' ') pos++;
                 }
             }
         }

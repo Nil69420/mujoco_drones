@@ -17,7 +17,7 @@ typedef struct {
     uint32_t channel_id;
 } fg_subscription_t;
 
-#define FG_MAX_SUBS  32
+enum { FG_MAX_SUBS = 32 };
 
 typedef struct {
     int                fd;

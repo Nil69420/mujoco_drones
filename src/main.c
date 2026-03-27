@@ -55,6 +55,54 @@ static const char *find_model(void) {
     return NULL;
 }
 
+typedef struct {
+    bool        headless;
+    double      duration;
+    double      altitude;
+    const char *model_path;
+#ifdef ENABLE_IPC
+    bool        no_ipc;
+    int         lidar_rays;
+    int         cam_w;
+    int         cam_h;
+#endif
+} cli_args_t;
+
+static int parse_args(int argc, char **argv, cli_args_t *args) {
+    args->headless   = false;
+    args->duration   = 10.0;
+    args->altitude   = 1.0;
+    args->model_path = NULL;
+#ifdef ENABLE_IPC
+    args->no_ipc     = false;
+    args->lidar_rays = 36;
+    args->cam_w      = 320;
+    args->cam_h      = 240;
+#endif
+
+    for (int i = 1; i < argc; i++) {
+        if      (!strcmp(argv[i], "--headless"))                  { args->headless = true; }
+        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { args->duration   = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   { args->altitude   = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--model")    && i+1 < argc)   { args->model_path = argv[++i]; }
+#ifdef ENABLE_IPC
+        else if (!strcmp(argv[i], "--no-ipc"))                    { args->no_ipc = true; }
+        else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { args->lidar_rays = (int)strtol(argv[++i], NULL, 10); }
+        else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { args->cam_w = (int)strtol(argv[++i], NULL, 10); }
+        else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { args->cam_h = (int)strtol(argv[++i], NULL, 10); }
+#endif
+        else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+            print_usage(argv[0]);
+            return 1;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 static int run_headless(sim_t *sim, double duration) {
     printf("Running headless for %.1f seconds...\n", duration);
     printf("Target: altitude=%.1f m, position=(%.1f, %.1f)\n\n",
@@ -91,38 +139,12 @@ static int run_headless(sim_t *sim, double duration) {
 }
 
 int main(int argc, char **argv) {
-    bool        headless   = false;
-    double      duration   = 10.0;
-    const char *model_path = NULL;
-    double      altitude   = 1.0;
-#ifdef ENABLE_IPC
-    bool        no_ipc     = false;
-    int         lidar_rays = 36;
-    int         cam_w      = 320;
-    int         cam_h      = 240;
-#endif
+    cli_args_t args = {0};
+    int parse_rc = parse_args(argc, argv, &args);
+    if (parse_rc > 0) return 0;
+    if (parse_rc < 0) return 1;
 
-    for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "--headless"))                  { headless = true; }
-        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { duration   = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   { altitude   = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--model")    && i+1 < argc)   { model_path = argv[++i]; }
-#ifdef ENABLE_IPC
-        else if (!strcmp(argv[i], "--no-ipc"))                    { no_ipc = true; }
-        else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { lidar_rays = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { cam_w = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { cam_h = (int)strtol(argv[++i], NULL, 10); }
-#endif
-        else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            print_usage(argv[0]);
-            return 0;
-        } else {
-            fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            print_usage(argv[0]);
-            return 1;
-        }
-    }
-
+    const char *model_path = args.model_path;
     if (!model_path) model_path = find_model();
     if (!model_path) {
         fprintf(stderr, "ERROR: Could not find scene.xml. Use --model.\n");
@@ -131,7 +153,7 @@ int main(int argc, char **argv) {
 
     sim_t sim = {0};
     sim.gains  = ctrl_default_gains();
-    sim.target = (setpoint_t){ .x = 0, .y = 0, .z = altitude, .yaw = 0 };
+    sim.target = (setpoint_t){ .x = 0, .y = 0, .z = args.altitude, .yaw = 0 };
 
     char error[1000] = "";
     sim.model = mj_loadXML(model_path, NULL, error, sizeof(error));
@@ -155,7 +177,7 @@ int main(int argc, char **argv) {
     ctrl_reset(&sim);
 
 #ifdef ENABLE_IPC
-    sim.ipc_enabled = !no_ipc;
+    sim.ipc_enabled = !args.no_ipc;
     if (sim.ipc_enabled) {
         if (transport_renoir_create(&sim.transport) != 0 ||
             transport_init(&sim.transport) != 0) {
@@ -163,11 +185,11 @@ int main(int argc, char **argv) {
             sim.ipc_enabled = false;
         } else {
             sensor_config_t scfg = sensor_default_config();
-            scfg.lidar_num_rays = (uint16_t)lidar_rays;
-            scfg.camera_width   = (uint16_t)cam_w;
-            scfg.camera_height  = (uint16_t)cam_h;
+            scfg.lidar_num_rays = (uint16_t)args.lidar_rays;
+            scfg.camera_width   = (uint16_t)args.cam_w;
+            scfg.camera_height  = (uint16_t)args.cam_h;
 
-            if (headless) {
+            if (args.headless) {
                 scfg.enable.camera = false;
             }
 
@@ -192,8 +214,8 @@ int main(int argc, char **argv) {
 #endif
 
     int rc = 0;
-    if (headless) {
-        rc = run_headless(&sim, duration);
+    if (args.headless) {
+        rc = run_headless(&sim, args.duration);
     } else {
 #ifdef NO_GLFW
         fprintf(stderr, "ERROR: Built without GLFW. Use --headless.\n");

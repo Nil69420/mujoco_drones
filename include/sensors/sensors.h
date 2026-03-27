@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "sensors/sensor_types.h"
+#include "sensors/noise.h"
 #include "transport/transport.h"
 #include "setpoint.h"
 
@@ -98,6 +99,8 @@ typedef struct {
 
     double gyro_bias[3];
     double accel_bias[3];
+
+    noise_rng_t rng;
 } sensor_mgr_t;
 
 sensor_config_t sensor_default_config(void);
