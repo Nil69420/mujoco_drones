@@ -64,6 +64,7 @@ static int run_headless(sim_t *sim, double duration) {
     int step = 0;
 
     while (sim->data->time < duration) {
+        ctrl_update(sim);
         mj_step(sim->model, sim->data);
 #ifdef ENABLE_IPC
         if (sim->ipc_enabled) {
@@ -152,7 +153,6 @@ int main(int argc, char **argv) {
         return 1;
     }
     ctrl_reset(&sim);
-    mjcb_control = ctrl_update;
 
 #ifdef ENABLE_IPC
     sim.ipc_enabled = !no_ipc;
@@ -183,7 +183,10 @@ int main(int argc, char **argv) {
     foxglove_bridge_t *fg = NULL;
     if (sim.ipc_enabled) {
         fg = foxglove_create(&sim.transport, FG_DEFAULT_PORT);
-        if (fg) foxglove_start(fg);
+        if (fg && foxglove_start(fg) != 0) {
+            foxglove_destroy(fg);
+            fg = NULL;
+        }
     }
 #endif
 #endif

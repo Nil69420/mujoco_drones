@@ -18,13 +18,11 @@ static bool button_middle = false;
 static bool button_right  = false;
 static double lastx = 0, lasty = 0;
 
-static sim_t *g_viewer_sim = NULL;
-
 static void cb_keyboard(GLFWwindow *win, int key, int scancode, int act, int mods) {
     (void)scancode; (void)mods;
     if (act != GLFW_PRESS) return;
 
-    sim_t *sim = g_viewer_sim;
+    sim_t *sim = (sim_t *)glfwGetWindowUserPointer(win);
 
     switch (key) {
     case GLFW_KEY_ESCAPE:
@@ -89,19 +87,19 @@ static void cb_mouse_move(GLFWwindow *win, double xpos, double ypos) {
         action = mjMOUSE_ZOOM;
     }
 
-    mjv_moveCamera(g_viewer_sim->model, (int)action,
+    sim_t *sim = (sim_t *)glfwGetWindowUserPointer(win);
+    mjv_moveCamera(sim->model, (int)action,
                    dx / (double)width, dy / (double)height, &scn, &cam);
 }
 
 static void cb_scroll(GLFWwindow *win, double xoffset, double yoffset) {
-    (void)win; (void)xoffset;
-    mjv_moveCamera(g_viewer_sim->model, mjMOUSE_ZOOM,
+    (void)xoffset;
+    sim_t *sim = (sim_t *)glfwGetWindowUserPointer(win);
+    mjv_moveCamera(sim->model, mjMOUSE_ZOOM,
                    0.0, -0.05 * yoffset, &scn, &cam);
 }
 
 int viewer_init(sim_t *sim) {
-    g_viewer_sim = sim;
-
     if (!glfwInit()) {
         fprintf(stderr, "ERROR: could not initialize GLFW\n");
         return -1;
@@ -115,6 +113,7 @@ int viewer_init(sim_t *sim) {
     }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
+    glfwSetWindowUserPointer(window, sim);
 
     mjv_defaultCamera(&cam);
     mjv_defaultOption(&opt);
@@ -146,6 +145,7 @@ void viewer_loop(sim_t *sim) {
     while (!glfwWindowShouldClose(window)) {
         mjtNum sim_start = sim->data->time;
         while (sim->data->time - sim_start < 1.0 / 60.0) {
+            ctrl_update(sim);
             mj_step(sim->model, sim->data);
 #ifdef ENABLE_IPC
             if (sim->ipc_enabled) {

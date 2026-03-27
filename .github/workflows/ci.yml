@@ -7,7 +7,7 @@ on:
     branches: [master, main]
 
 env:
-  MUJOCO_VERSION: "3.2.6"
+  MUJOCO_VERSION: "3.5.0"
 
 jobs:
   build:

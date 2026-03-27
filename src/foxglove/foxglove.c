@@ -12,7 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/uio.h>
 #include <unistd.h>
 
 static void sha1_transform(uint32_t state[5], const uint8_t block[64]) {
@@ -110,6 +109,36 @@ static size_t base64_encode(const uint8_t *in, size_t len, char *out) {
 
 static const char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+static int write_all(int fd, const void *buf, size_t len) {
+    const uint8_t *p = buf;
+    size_t remaining = len;
+    while (remaining > 0) {
+        ssize_t n = send(fd, p, remaining, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        p += (size_t)n;
+        remaining -= (size_t)n;
+    }
+    return 0;
+}
+
+static ssize_t recv_all(int fd, void *buf, size_t len) {
+    uint8_t *p = buf;
+    size_t got = 0;
+    while (got < len) {
+        ssize_t n = recv(fd, p + got, len - got, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        got += (size_t)n;
+    }
+    return (ssize_t)got;
+}
+
 static int ws_send_frame(int fd, uint8_t opcode, const void *data, size_t len) {
     uint8_t hdr[10];
     size_t hdr_len = 0;
@@ -132,19 +161,17 @@ static int ws_send_frame(int fd, uint8_t opcode, const void *data, size_t len) {
         hdr_len = 10;
     }
 
-    struct iovec iov[2] = {
-        { .iov_base = hdr,          .iov_len = hdr_len },
-        { .iov_base = (void*)data,  .iov_len = len },
-    };
-    ssize_t total = (ssize_t)(hdr_len + len);
-    ssize_t sent = writev(fd, iov, data ? 2 : 1);
-    return (sent == total) ? 0 : -1;
+    if (write_all(fd, hdr, hdr_len) != 0) return -1;
+    if (data && len > 0) {
+        if (write_all(fd, data, len) != 0) return -1;
+    }
+    return 0;
 }
 
 static ssize_t ws_recv_frame(int fd, uint8_t *buf, size_t buf_sz,
                              uint8_t *opcode) {
     uint8_t hdr[2];
-    if (recv(fd, hdr, 2, MSG_WAITALL) != 2) return -1;
+    if (recv_all(fd, hdr, 2) != 2) return -1;
 
     *opcode = hdr[0] & 0x0FU;
     bool masked = (hdr[1] & 0x80U) != 0;
@@ -152,11 +179,11 @@ static ssize_t ws_recv_frame(int fd, uint8_t *buf, size_t buf_sz,
 
     if (plen == 126) {
         uint8_t ext[2];
-        if (recv(fd, ext, 2, MSG_WAITALL) != 2) return -1;
+        if (recv_all(fd, ext, 2) != 2) return -1;
         plen = ((uint64_t)ext[0] << 8) | ext[1];
     } else if (plen == 127) {
         uint8_t ext[8];
-        if (recv(fd, ext, 8, MSG_WAITALL) != 8) return -1;
+        if (recv_all(fd, ext, 8) != 8) return -1;
         plen = 0;
         for (int i = 0; i < 8; i++) {
             plen = (plen << 8) | ext[i];
@@ -165,7 +192,7 @@ static ssize_t ws_recv_frame(int fd, uint8_t *buf, size_t buf_sz,
 
     uint8_t mask[4] = {0};
     if (masked) {
-        if (recv(fd, mask, 4, MSG_WAITALL) != 4) return -1;
+        if (recv_all(fd, mask, 4) != 4) return -1;
     }
 
     if (plen > buf_sz) {
@@ -226,6 +253,7 @@ struct foxglove_bridge {
     int            listen_fd;
     atomic_bool    running;
     pthread_t      thread;
+    bool           thread_started;
 
     fg_channel_t   channels[FG_MAX_CHANNELS];
     int            num_channels;
@@ -262,12 +290,17 @@ static int fg_send_server_info(int fd) {
 static int fg_send_advertise(int fd, const fg_channel_t *channels, int n) {
     char buf[4096];
     int off = 0;
-    off += snprintf(buf + off, sizeof(buf) - (size_t)off,
-                    "{\"op\":\"advertise\",\"channels\":[");
+    int rem = (int)sizeof(buf);
+    int w = 0;
+
+    w = snprintf(buf + off, (size_t)rem, "{\"op\":\"advertise\",\"channels\":[");
+    if (w < 0 || w >= rem) return -1;
+    off += w; rem -= w;
 
     for (int i = 0; i < n; i++) {
-        if (i > 0) buf[off++] = ',';
-        off += snprintf(buf + off, sizeof(buf) - (size_t)off,
+        if (rem < 300) return -1;
+        if (i > 0) { buf[off++] = ','; rem--; }
+        w = snprintf(buf + off, (size_t)rem,
                         "{\"id\":%u,"
                         "\"topic\":\"%s\","
                         "\"encoding\":\"json\","
@@ -276,8 +309,14 @@ static int fg_send_advertise(int fd, const fg_channel_t *channels, int n) {
                         channels[i].id,
                         channels[i].topic,
                         channels[i].schema_name);
+        if (w < 0 || w >= rem) return -1;
+        off += w; rem -= w;
     }
-    off += snprintf(buf + off, sizeof(buf) - (size_t)off, "]}");
+
+    if (rem < 3) return -1;
+    buf[off++] = ']';
+    buf[off++] = '}';
+    buf[off]   = '\0';
 
     return ws_send_frame(fd, WS_OP_TEXT, buf, (size_t)off);
 }
@@ -398,9 +437,14 @@ static int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
 
 static int ws_accept_handshake(int fd) {
     char req[4096];
-    ssize_t n = recv(fd, req, sizeof(req) - 1, 0);
-    if (n <= 0) return -1;
-    req[n] = '\0';
+    size_t total = 0;
+    while (total < sizeof(req) - 1U) {
+        ssize_t n = recv(fd, req + total, sizeof(req) - 1U - total, 0);
+        if (n <= 0) return -1;
+        total += (size_t)n;
+        req[total] = '\0';
+        if (strstr(req, "\r\n\r\n")) break;
+    }
 
     const char *key_hdr = strstr(req, "Sec-WebSocket-Key: ");
     if (!key_hdr) return -1;
@@ -460,11 +504,24 @@ static void handle_client_message(fg_client_t *client, const char *msg,
             client->num_subs++;
         }
     } else if (strstr(buf, "\"unsubscribe\"")) {
-        uint32_t sub_id = parse_uint(buf, "\"subscriptionIds\"");
-        for (int i = 0; i < client->num_subs; i++) {
-            if (client->subs[i].sub_id == sub_id) {
-                client->subs[i] = client->subs[--client->num_subs];
-                break;
+        const char *p = strstr(buf, "\"subscriptionIds\"");
+        if (p) {
+            p = strchr(p, '[');
+            if (p) {
+                p++;
+                while (*p && *p != ']') {
+                    char *end = NULL;
+                    uint32_t sub_id = (uint32_t)strtoul(p, &end, 10);
+                    if (end == p) break;
+                    for (int i = 0; i < client->num_subs; i++) {
+                        if (client->subs[i].sub_id == sub_id) {
+                            client->subs[i] = client->subs[--client->num_subs];
+                            break;
+                        }
+                    }
+                    p = end;
+                    while (*p == ',' || *p == ' ') p++;
+                }
             }
         }
     }
@@ -569,7 +626,7 @@ static void *bridge_thread(void *arg) {
             if (rc != 0 || out_len == 0) continue;
 
             int jlen = serializers[ch](msg_buf, json_buf, sizeof(json_buf));
-            if (jlen <= 0) continue;
+            if (jlen <= 0 || jlen >= (int)sizeof(json_buf)) continue;
 
             uint64_t ts = 0;
             if (out_len >= sizeof(sensor_header_t)) {
@@ -607,9 +664,10 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
     foxglove_bridge_t *br = calloc(1, sizeof(foxglove_bridge_t));
     if (!br) return NULL;
 
-    br->tp        = tp;
-    br->port      = port;
-    br->listen_fd = -1;
+    br->tp             = tp;
+    br->port           = port;
+    br->listen_fd      = -1;
+    br->thread_started = false;
     atomic_store(&br->running, false);
 
     for (int i = 0; i < FG_MAX_CLIENTS; i++) {
@@ -675,6 +733,7 @@ int foxglove_start(foxglove_bridge_t *br) {
         br->listen_fd = -1;
         return -1;
     }
+    br->thread_started = true;
 
     fprintf(stderr, "[foxglove] WebSocket server on ws://0.0.0.0:%u\n",
             br->port);
@@ -691,7 +750,10 @@ void foxglove_destroy(foxglove_bridge_t *br) {
         br->listen_fd = -1;
     }
 
-    pthread_join(br->thread, NULL);
+    if (br->thread_started) {
+        pthread_join(br->thread, NULL);
+        br->thread_started = false;
+    }
 
     for (int i = 0; i < br->num_channels; i++) {
         transport_close_sub(&br->subs[i]);

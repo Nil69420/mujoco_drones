@@ -15,8 +15,8 @@ int ctrl_resolve_actuators(sim_t *sim);
 /* Reset integrators / internal state */
 void ctrl_reset(sim_t *sim);
 
-/* Controller update — called from MuJoCo callback */
-void ctrl_update(const mjModel *model, mjData *data);
+/* Controller update — call once per simulation step before mj_step */
+void ctrl_update(sim_t *sim);
 
 /* Utility: quaternion → euler (ZYX) */
 void quat_to_euler(const double q[4], double *roll, double *pitch, double *yaw);

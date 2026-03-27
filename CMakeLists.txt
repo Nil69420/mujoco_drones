@@ -19,6 +19,7 @@ message(STATUS "MuJoCo: ${MUJOCO_DIR}")
 
 find_package(glfw3 QUIET)
 find_package(OpenGL QUIET)
+find_package(Threads REQUIRED)
 
 option(ENABLE_IPC "Enable IPC transport (requires renoir)" ON)
 option(ENABLE_FOXGLOVE "Enable Foxglove WebSocket bridge (requires IPC)" OFF)
@@ -115,7 +116,7 @@ if(ENABLE_IPC)
     target_compile_definitions(hummingbird PRIVATE ENABLE_IPC)
 
     if(ENABLE_FOXGLOVE)
-        target_link_libraries(hummingbird PRIVATE pthread)
+        target_link_libraries(hummingbird PRIVATE Threads::Threads)
         target_compile_definitions(hummingbird PRIVATE ENABLE_FOXGLOVE)
         message(STATUS "Foxglove WebSocket bridge enabled")
     endif()

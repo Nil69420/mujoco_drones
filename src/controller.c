@@ -14,12 +14,6 @@
 #include <stdlib.h>
 
 /* ================================================================
- * Global sim pointer (needed because mjcb_control has a fixed
- * signature — no user-data pointer).
- * ================================================================ */
-static sim_t *g_sim = NULL;
-
-/* ================================================================
  * Default gains — tuned for 1000 Hz timestep
  *
  * Key stability fixes vs the original:
@@ -52,8 +46,6 @@ ctrl_gains_t ctrl_default_gains(void) {
  * Resolve actuator indices by name
  * ================================================================ */
 int ctrl_resolve_actuators(sim_t *sim) {
-    g_sim = sim;   /* register for callback */
-
     char name[32];
     for (int i = 0; i < NUM_ROTORS; i++) {
         snprintf(name, sizeof(name), "thrust_%d", i);
@@ -122,13 +114,13 @@ static void mixer(double total_thrust,
                   double tau_roll, double tau_pitch, double tau_yaw,
                   double f_out[4])
 {
-    const double L  = ARM_LENGTH;
-    const double km = MOMENT_CONSTANT;
+    const double arm_len = ARM_LENGTH;
+    const double km      = MOMENT_CONSTANT;
 
-    f_out[0] = total_thrust / 4.0 - tau_pitch / (2.0 * L) - tau_yaw / (4.0 * km);
-    f_out[1] = total_thrust / 4.0 + tau_roll  / (2.0 * L) + tau_yaw / (4.0 * km);
-    f_out[2] = total_thrust / 4.0 + tau_pitch / (2.0 * L) - tau_yaw / (4.0 * km);
-    f_out[3] = total_thrust / 4.0 - tau_roll  / (2.0 * L) + tau_yaw / (4.0 * km);
+    f_out[0] = total_thrust / 4.0 - tau_pitch / (2.0 * arm_len) - tau_yaw / (4.0 * km);
+    f_out[1] = total_thrust / 4.0 + tau_roll  / (2.0 * arm_len) + tau_yaw / (4.0 * km);
+    f_out[2] = total_thrust / 4.0 + tau_pitch / (2.0 * arm_len) - tau_yaw / (4.0 * km);
+    f_out[3] = total_thrust / 4.0 - tau_roll  / (2.0 * arm_len) + tau_yaw / (4.0 * km);
 
     for (int i = 0; i < NUM_ROTORS; i++) {
         f_out[i] = clampd(f_out[i], 0.0, MAX_THRUST);
@@ -144,16 +136,17 @@ static double thrust_to_omega(double thrust) {
 }
 
 /* ================================================================
- * Controller callback (MuJoCo mjcb_control)
+ * Controller update — called once per simulation step
  * ================================================================ */
-void ctrl_update(const mjModel *model, mjData *data) {
-    sim_t *sim = g_sim;
+void ctrl_update(sim_t *sim) {
     if (!sim) return;
 
-    const ctrl_gains_t *g = &sim->gains;
-    ctrl_state_t       *c = &sim->ctrl;
-    const setpoint_t   *t = &sim->target;
-    const double        dt = model->opt.timestep;
+    const mjModel      *model = sim->model;
+    mjData             *data  = sim->data;
+    const ctrl_gains_t *gains = &sim->gains;
+    ctrl_state_t       *cst   = &sim->ctrl;
+    const setpoint_t   *t     = &sim->target;
+    const double        dt    = model->opt.timestep;
 
     /* ---- Max angle for outer-loop commands ---- */
     const double MAX_TILT = 0.20;  /* rad ≈ 11.5° */
@@ -167,10 +160,10 @@ void ctrl_update(const mjModel *model, mjData *data) {
     quat_to_euler(&data->qpos[3], &roll, &pitch, &yaw);
 
     /* Initialize previous values on first call */
-    if (!c->initialized) {
-        c->prev_roll  = roll;
-        c->prev_pitch = pitch;
-        c->initialized = true;
+    if (!cst->initialized) {
+        cst->prev_roll  = roll;
+        cst->prev_pitch = pitch;
+        cst->initialized = true;
     }
 
     /* ---- Altitude PID with anti-windup ---- */
@@ -178,9 +171,9 @@ void ctrl_update(const mjModel *model, mjData *data) {
 
     /* Only integrate when error is small (anti-windup) */
     if (fabs(z_error) < 1.0) {
-        c->z_integral += z_error * dt;
+        cst->z_integral += z_error * dt;
     }
-    c->z_integral = clampd(c->z_integral, -1.0, 1.0);
+    cst->z_integral = clampd(cst->z_integral, -1.0, 1.0);
 
     /* Compensate for tilt: thrust must be divided by cos(roll)*cos(pitch)
        to maintain altitude when tilted */
@@ -188,9 +181,9 @@ void ctrl_update(const mjModel *model, mjData *data) {
     if (cos_tilt < 0.5) cos_tilt = 0.5;  /* safety floor */
 
     double thrust_cmd = (TOTAL_MASS * GRAVITY
-                       + g->kp_z * z_error
-                       + g->kd_z * (-vz)
-                       + g->ki_z * c->z_integral) / cos_tilt;
+                       + gains->kp_z * z_error
+                       + gains->kd_z * (-vz)
+                       + gains->ki_z * cst->z_integral) / cos_tilt;
 
     thrust_cmd = clampd(thrust_cmd, 0.0, 4.0 * MAX_THRUST);
 
@@ -198,8 +191,8 @@ void ctrl_update(const mjModel *model, mjData *data) {
     double ex = t->x - px;
     double ey = t->y - py;
 
-    double ax_cmd = g->kp_xy * ex + g->kd_xy * (-vx);
-    double ay_cmd = g->kp_xy * ey + g->kd_xy * (-vy);
+    double ax_cmd = gains->kp_xy * ex + gains->kd_xy * (-vx);
+    double ay_cmd = gains->kp_xy * ey + gains->kd_xy * (-vy);
 
     /* Limit acceleration command magnitude */
     double a_mag = sqrt(ax_cmd * ax_cmd + ay_cmd * ay_cmd);
@@ -223,27 +216,27 @@ void ctrl_update(const mjModel *model, mjData *data) {
     const double MAX_ANGLE_RATE = 2.0;   /* rad/s */
     double max_delta = MAX_ANGLE_RATE * dt;
 
-    double delta_roll  = desired_roll  - c->prev_roll;
-    double delta_pitch = desired_pitch - c->prev_pitch;
-    desired_roll  = c->prev_roll  + clampd(delta_roll,  -max_delta, max_delta);
-    desired_pitch = c->prev_pitch + clampd(delta_pitch, -max_delta, max_delta);
-    c->prev_roll  = desired_roll;
-    c->prev_pitch = desired_pitch;
+    double delta_roll  = desired_roll  - cst->prev_roll;
+    double delta_pitch = desired_pitch - cst->prev_pitch;
+    desired_roll  = cst->prev_roll  + clampd(delta_roll,  -max_delta, max_delta);
+    desired_pitch = cst->prev_pitch + clampd(delta_pitch, -max_delta, max_delta);
+    cst->prev_roll  = desired_roll;
+    cst->prev_pitch = desired_pitch;
 
     /* ---- Inner loop: attitude PD ---- */
-    double tau_roll  = g->kp_roll  * (desired_roll  - roll)  + g->kd_roll  * (-wx);
-    double tau_pitch = g->kp_pitch * (desired_pitch - pitch) + g->kd_pitch * (-wy);
-    double tau_yaw   = g->kp_yaw   * wrap_angle(t->yaw - yaw) + g->kd_yaw * (-wz);
+    double tau_roll  = gains->kp_roll  * (desired_roll  - roll)  + gains->kd_roll  * (-wx);
+    double tau_pitch = gains->kp_pitch * (desired_pitch - pitch) + gains->kd_pitch * (-wy);
+    double tau_yaw   = gains->kp_yaw   * wrap_angle(t->yaw - yaw) + gains->kd_yaw * (-wz);
 
     /* ---- Mix and apply ---- */
     double forces[NUM_ROTORS];
     mixer(thrust_cmd, tau_roll, tau_pitch, tau_yaw, forces);
 
     for (int i = 0; i < NUM_ROTORS; i++) {
-        data->ctrl[c->act_thrust[i]] = forces[i];
+        data->ctrl[cst->act_thrust[i]] = forces[i];
 
         double omega = thrust_to_omega(forces[i]);
         /* CW rotors (0,2) spin negative; CCW rotors (1,3) spin positive */
-        data->ctrl[c->act_spin[i]] = (i == 0 || i == 2) ? -omega : omega;
+        data->ctrl[cst->act_spin[i]] = (i == 0 || i == 2) ? -omega : omega;
     }
 }
