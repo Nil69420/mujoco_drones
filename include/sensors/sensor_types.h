@@ -45,7 +45,7 @@ typedef struct {
     double altitude_m;
 } sensor_baro_t;
 
-#define LIDAR_MAX_RAYS 360
+enum { LIDAR_MAX_RAYS = 360 };
 
 typedef struct {
     sensor_header_t header;

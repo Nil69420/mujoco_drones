@@ -13,7 +13,7 @@
 #define MOTOR_KF         8.54858e-6
 #define MAX_OMEGA        838.0
 #define MAX_THRUST       (MOTOR_KF * MAX_OMEGA * MAX_OMEGA)
-#define NUM_ROTORS       4
+enum { NUM_ROTORS = 4 };
 
 typedef struct {
     double kp_z,     kd_z,     ki_z;

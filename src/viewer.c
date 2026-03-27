@@ -7,16 +7,16 @@
 #ifndef NO_GLFW
 #include <GLFW/glfw3.h>
 
-static mjvCamera  cam;
-static mjvOption   opt;
-static mjvScene   scn;
-static mjrContext  con;
-static GLFWwindow *window = NULL;
+static mjvCamera  cam;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static mjvOption   opt;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static mjvScene   scn;    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static mjrContext  con;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static GLFWwindow *window = NULL;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-static bool button_left   = false;
-static bool button_middle = false;
-static bool button_right  = false;
-static double lastx = 0, lasty = 0;
+static bool button_left   = false;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static bool button_middle = false;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static bool button_right  = false;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+static double lastx = 0, lasty = 0;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 static void cb_keyboard(GLFWwindow *win, int key, int scancode, int act, int mods) {
     (void)scancode; (void)mods;
@@ -53,6 +53,8 @@ static void cb_keyboard(GLFWwindow *win, int key, int scancode, int act, int mod
         sim->target.x = 0; sim->target.y = 0;
         sim->target.z = 1.0; sim->target.yaw = 0;
         break;
+
+    default: break;
     }
 }
 
@@ -205,7 +207,7 @@ void viewer_print_telemetry(const sim_t *sim) {
     double roll = 0.0, pitch = 0.0, yaw = 0.0;
     quat_to_euler(&sim->data->qpos[3], &roll, &pitch, &yaw);
 
-    const ctrl_state_t *c = &sim->ctrl;
+    const ctrl_state_t *cs = &sim->ctrl;
 
     printf("\rt=%.2f | pos=(%.2f, %.2f, %.2f) | rpy=(%.1f, %.1f, %.1f) | "
            "tgt=(%.1f, %.1f, %.1f) | F=[%.2f %.2f %.2f %.2f]",
@@ -213,7 +215,7 @@ void viewer_print_telemetry(const sim_t *sim) {
            sim->data->qpos[0], sim->data->qpos[1], sim->data->qpos[2],
            roll * 180.0/M_PI, pitch * 180.0/M_PI, yaw * 180.0/M_PI,
            sim->target.x, sim->target.y, sim->target.z,
-           sim->data->ctrl[c->act_thrust[0]], sim->data->ctrl[c->act_thrust[1]],
-           sim->data->ctrl[c->act_thrust[2]], sim->data->ctrl[c->act_thrust[3]]);
+           sim->data->ctrl[cs->act_thrust[0]], sim->data->ctrl[cs->act_thrust[1]],
+           sim->data->ctrl[cs->act_thrust[2]], sim->data->ctrl[cs->act_thrust[3]]);
     fflush(stdout);
 }

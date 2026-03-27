@@ -13,25 +13,25 @@
 static const char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 static int write_all(int fd, const void *buf, size_t len) {
-    const uint8_t *p = buf;
+    const uint8_t *ptr = buf;
     size_t remaining = len;
     while (remaining > 0) {
-        ssize_t n = send(fd, p, remaining, 0);
+        ssize_t n = send(fd, ptr, remaining, 0);
         if (n < 0) {
             if (errno == EINTR) continue;
             return -1;
         }
-        p += (size_t)n;
+        ptr += (size_t)n;
         remaining -= (size_t)n;
     }
     return 0;
 }
 
 static ssize_t recv_all(int fd, void *buf, size_t len) {
-    uint8_t *p = buf;
+    uint8_t *ptr = buf;
     size_t got = 0;
     while (got < len) {
-        ssize_t n = recv(fd, p + got, len - got, 0);
+        ssize_t n = recv(fd, ptr + got, len - got, 0);
         if (n < 0) {
             if (errno == EINTR) continue;
             return -1;
