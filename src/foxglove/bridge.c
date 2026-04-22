@@ -270,7 +270,7 @@ static void *bridge_thread(void *arg) {
 
         for (int ch = 0; ch < br->num_channels; ch++) {
             if (br->cam_rgb_buf && ch == br->cam_rgb_ch) {
-                if (now_ns - br->cam_last_ns < 200000000ULL) continue;
+                if (now_ns - br->cam_last_ns < 500000000ULL) continue;
                 br->cam_last_ns = now_ns;
                 bridge_broadcast_channel(br, ch,
                                          br->cam_rgb_buf, br->cam_rgb_buf_sz,

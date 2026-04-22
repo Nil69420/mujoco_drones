@@ -128,8 +128,6 @@ void fg_handle_client_message(fg_client_t *client, const char *msg,
     memcpy(buf, msg, copy);
     buf[copy] = '\0';
 
-    fprintf(stderr, "[fg_proto] recv %zu bytes: %.300s\n", len, buf);
-
     if (strstr(buf, "\"subscribe\"")) {
         /* Foxglove Studio may send all subscriptions in one message:
          * {"op":"subscribe","subscriptions":[{"id":1,"channelId":1},...]}

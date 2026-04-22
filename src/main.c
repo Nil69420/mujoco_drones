@@ -25,8 +25,8 @@ static void print_usage(const char *prog) {
 #ifdef ENABLE_IPC
     printf("  --no-ipc         Disable IPC transport\n");
     printf("  --lidar-rays N   Number of LiDAR rays (default 36)\n");
-    printf("  --cam-width W    Camera width in pixels (default 320)\n");
-    printf("  --cam-height H   Camera height in pixels (default 240)\n");
+    printf("  --cam-width W    Camera width in pixels (default 160)\n");
+    printf("  --cam-height H   Camera height in pixels (default 120)\n");
 #endif
     printf("  -h, --help       Show this help\n\n");
     printf("Interactive controls:\n");
@@ -76,8 +76,8 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
 #ifdef ENABLE_IPC
     args->no_ipc     = false;
     args->lidar_rays = 36;
-    args->cam_w      = 320;
-    args->cam_h      = 240;
+    args->cam_w      = 160;
+    args->cam_h      = 120;
 #endif
 
     for (int i = 1; i < argc; i++) {
