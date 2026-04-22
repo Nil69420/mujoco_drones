@@ -462,6 +462,16 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     uint8_t *pixels = mgr->rgb_buf + sizeof(sensor_camera_rgb_hdr_t);
     mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
 
+    int row_bytes = w * 3;
+    uint8_t temp_row[4096];
+    for (int y = 0; y < h / 2; y++) {
+        uint8_t *top = pixels + y * row_bytes;
+        uint8_t *bot = pixels + (h - 1 - y) * row_bytes;
+        memcpy(temp_row, top, (size_t)row_bytes);
+        memcpy(top, bot, (size_t)row_bytes);
+        memcpy(bot, temp_row, (size_t)row_bytes);
+    }
+
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
     size_t rgb_sz   = (size_t)(unsigned)w * (unsigned)h * 3;
     size_t depth_sz = (size_t)(unsigned)w * (unsigned)h * sizeof(float);

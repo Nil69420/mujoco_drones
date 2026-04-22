@@ -9,6 +9,7 @@ typedef struct {
     uint32_t    id;
     const char *topic;
     const char *schema_name;
+    const char *schema;
     size_t      msg_size;
 } fg_channel_t;
 
@@ -31,7 +32,7 @@ int fg_send_advertise(int fd, const fg_channel_t *channels, int n);
 int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
                     const void *json, size_t json_len);
 
-uint32_t fg_parse_uint(const char *s, const char *key);
+int fg_parse_uint(const char *s, const char *key, uint32_t *out);
 void fg_handle_client_message(fg_client_t *client, const char *msg, size_t len);
 const fg_subscription_t *fg_find_sub(const fg_client_t *c, uint32_t ch_id);
 void fg_close_client(fg_client_t *c);

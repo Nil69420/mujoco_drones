@@ -11,43 +11,80 @@ int fg_send_server_info(int fd) {
         "{\"op\":\"serverInfo\","
         "\"name\":\"mujoco_drones\","
         "\"capabilities\":[],"
-        "\"supportedEncodings\":[\"json\"],"
         "\"metadata\":{}}";
     return ws_send_frame(fd, WS_OP_TEXT, msg, strlen(msg));
 }
 
 int fg_send_advertise(int fd, const fg_channel_t *channels, int n) {
-    char buf[4096];
+    size_t need = 128;
+    for (int i = 0; i < n; i++) {
+        need += 512;
+        if (channels[i].schema) {
+            need += strlen(channels[i].schema) * 2;
+        }
+    }
+
+    char *buf = malloc(need);
+    if (!buf) return -1;
+
+    char *esc = malloc(need);
+    if (!esc) { free(buf); return -1; }
+
     int off = 0;
-    int rem = (int)sizeof(buf);
+    int rem = (int)need;
     int w = 0;
 
     w = snprintf(buf + off, (size_t)rem, "{\"op\":\"advertise\",\"channels\":[");
-    if (w < 0 || w >= rem) return -1;
+    if (w < 0 || w >= rem) { free(buf); free(esc); return -1; }
     off += w; rem -= w;
 
     for (int i = 0; i < n; i++) {
-        if (rem < 300) return -1;
+        if (rem < 300) { free(buf); free(esc); return -1; }
         if (i > 0) { buf[off++] = ','; rem--; }
-        w = snprintf(buf + off, (size_t)rem,
-                        "{\"id\":%u,"
-                        "\"topic\":\"%s\","
-                        "\"encoding\":\"json\","
-                        "\"schemaName\":\"%s\","
-                        "\"schema\":\"\"}",
-                        channels[i].id,
-                        channels[i].topic,
-                        channels[i].schema_name);
-        if (w < 0 || w >= rem) return -1;
+
+        if (channels[i].schema && channels[i].schema[0]) {
+            size_t ej = 0;
+            for (const char *p = channels[i].schema; *p && ej + 2 < need; p++) {
+                if (*p == '"' || *p == '\\') esc[ej++] = '\\';
+                esc[ej++] = *p;
+            }
+            esc[ej] = '\0';
+
+            w = snprintf(buf + off, (size_t)rem,
+                    "{\"id\":%u,"
+                    "\"topic\":\"%s\","
+                    "\"encoding\":\"json\","
+                    "\"schemaName\":\"%s\","
+                    "\"schemaEncoding\":\"jsonschema\","
+                    "\"schema\":\"%s\"}",
+                    channels[i].id,
+                    channels[i].topic,
+                    channels[i].schema_name,
+                    esc);
+        } else {
+            w = snprintf(buf + off, (size_t)rem,
+                    "{\"id\":%u,"
+                    "\"topic\":\"%s\","
+                    "\"encoding\":\"json\","
+                    "\"schemaName\":\"%s\","
+                    "\"schema\":\"\"}",
+                    channels[i].id,
+                    channels[i].topic,
+                    channels[i].schema_name);
+        }
+        if (w < 0 || w >= rem) { free(buf); free(esc); return -1; }
         off += w; rem -= w;
     }
 
-    if (rem < 3) return -1;
+    if (rem < 3) { free(buf); free(esc); return -1; }
     buf[off++] = ']';
     buf[off++] = '}';
     buf[off]   = '\0';
 
-    return ws_send_frame(fd, WS_OP_TEXT, buf, (size_t)off);
+    int rc = ws_send_frame(fd, WS_OP_TEXT, buf, (size_t)off);
+    free(buf);
+    free(esc);
+    return rc;
 }
 
 int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
@@ -74,12 +111,14 @@ int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
     return rc;
 }
 
-uint32_t fg_parse_uint(const char *s, const char *key) {
+int fg_parse_uint(const char *s, const char *key, uint32_t *out) {
     const char *pos = strstr(s, key);
-    if (!pos) return 0;
+    if (!pos) return -1;
     pos += strlen(key);
     while (*pos && (*pos == ':' || *pos == ' ' || *pos == '"')) pos++;
-    return (uint32_t)strtoul(pos, NULL, 10);
+    if (*pos < '0' || *pos > '9') return -1;
+    *out = (uint32_t)strtoul(pos, NULL, 10);
+    return 0;
 }
 
 void fg_handle_client_message(fg_client_t *client, const char *msg,
@@ -103,9 +142,11 @@ void fg_handle_client_message(fg_client_t *client, const char *msg,
             const char *end = strchr(obj, '}');
             if (!end) break;
 
-            uint32_t sub_id = fg_parse_uint(obj, "\"id\"");
-            uint32_t ch_id  = fg_parse_uint(obj, "\"channelId\"");
-            if (sub_id > 0 && ch_id > 0 && client->num_subs < FG_MAX_SUBS) {
+            uint32_t sub_id = 0, ch_id = 0;
+            int got_sub = fg_parse_uint(obj, "\"id\"", &sub_id);
+            int got_ch  = fg_parse_uint(obj, "\"channelId\"", &ch_id);
+            if (got_sub == 0 && got_ch == 0 && ch_id > 0 &&
+                client->num_subs < FG_MAX_SUBS) {
                 client->subs[client->num_subs].sub_id     = sub_id;
                 client->subs[client->num_subs].channel_id = ch_id;
                 client->num_subs++;

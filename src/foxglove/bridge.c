@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 struct foxglove_bridge {
@@ -31,32 +33,109 @@ struct foxglove_bridge {
 
     fg_client_t    clients[FG_MAX_CLIENTS];
 
-    /* Heap-allocated buffers for the large camera RGB channel */
     uint8_t *cam_rgb_buf;
     char    *cam_json_buf;
     size_t   cam_rgb_buf_sz;
     size_t   cam_json_buf_sz;
-    int      cam_rgb_ch;   /* index into channels[] for /drone/camera/rgb, or -1 */
+    int      cam_rgb_ch;
+    uint64_t cam_last_ns;
 };
 
 /* Max camera resolution used to size the heap buffers for the RGB channel.
  * Actual runtime dimensions come from sensor_camera_rgb_hdr_t. */
 enum { CAM_BUF_MAX_W = 1280, CAM_BUF_MAX_H = 720 };
 
+static const char SCHEMA_IMU[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp_ns\":{\"type\":\"integer\"},"
+    "\"seq\":{\"type\":\"integer\"},"
+    "\"accel\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},"
+    "\"gyro\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},"
+    "\"mag\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},"
+    "\"orientation\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}}"
+    "}}";
+
+static const char SCHEMA_GNSS[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp_ns\":{\"type\":\"integer\"},"
+    "\"seq\":{\"type\":\"integer\"},"
+    "\"latitude\":{\"type\":\"number\"},"
+    "\"longitude\":{\"type\":\"number\"},"
+    "\"altitude\":{\"type\":\"number\"},"
+    "\"velocity\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}},"
+    "\"fix_type\":{\"type\":\"integer\"},"
+    "\"num_satellites\":{\"type\":\"integer\"},"
+    "\"hdop\":{\"type\":\"number\"}"
+    "}}";
+
+static const char SCHEMA_BARO[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp_ns\":{\"type\":\"integer\"},"
+    "\"seq\":{\"type\":\"integer\"},"
+    "\"pressure_pa\":{\"type\":\"number\"},"
+    "\"temperature_c\":{\"type\":\"number\"},"
+    "\"altitude_m\":{\"type\":\"number\"}"
+    "}}";
+
+static const char SCHEMA_LIDAR[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp_ns\":{\"type\":\"integer\"},"
+    "\"seq\":{\"type\":\"integer\"},"
+    "\"num_rays\":{\"type\":\"integer\"},"
+    "\"angle_min\":{\"type\":\"number\"},"
+    "\"angle_max\":{\"type\":\"number\"},"
+    "\"range_min\":{\"type\":\"number\"},"
+    "\"range_max\":{\"type\":\"number\"},"
+    "\"ranges\":{\"type\":\"array\",\"items\":{\"type\":\"number\"}}"
+    "}}";
+
+static const char SCHEMA_INFRARED[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp_ns\":{\"type\":\"integer\"},"
+    "\"seq\":{\"type\":\"integer\"},"
+    "\"range_m\":{\"type\":\"number\"},"
+    "\"range_min\":{\"type\":\"number\"},"
+    "\"range_max\":{\"type\":\"number\"},"
+    "\"beam_angle\":{\"type\":\"number\"}"
+    "}}";
+
+static const char SCHEMA_CAMERA_META[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp_ns\":{\"type\":\"integer\"},"
+    "\"seq\":{\"type\":\"integer\"},"
+    "\"width\":{\"type\":\"integer\"},"
+    "\"height\":{\"type\":\"integer\"},"
+    "\"channels\":{\"type\":\"integer\"},"
+    "\"fov_y\":{\"type\":\"number\"},"
+    "\"rgb_size\":{\"type\":\"integer\"},"
+    "\"depth_size\":{\"type\":\"integer\"}"
+    "}}";
+
+static const char SCHEMA_RAW_IMAGE[] =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"timestamp\":{\"type\":\"object\",\"properties\":{"
+    "\"sec\":{\"type\":\"integer\"},\"nsec\":{\"type\":\"integer\"}}},"
+    "\"frame_id\":{\"type\":\"string\"},"
+    "\"width\":{\"type\":\"integer\"},"
+    "\"height\":{\"type\":\"integer\"},"
+    "\"encoding\":{\"type\":\"string\"},"
+    "\"step\":{\"type\":\"integer\"},"
+    "\"data\":{\"type\":\"string\",\"contentEncoding\":\"base64\"}"
+    "}}";
+
 static const struct {
     const char *topic;
+    const char *schema_name;
     const char *schema;
     size_t      size;
 } DRONE_TOPICS[] = {
-    { "/drone/imu",          "sensor_imu_t",         sizeof(sensor_imu_t)         },
-    { "/drone/gnss",         "sensor_gnss_t",        sizeof(sensor_gnss_t)        },
-    { "/drone/baro",         "sensor_baro_t",        sizeof(sensor_baro_t)        },
-    { "/drone/lidar",        "sensor_lidar_t",       sizeof(sensor_lidar_t)       },
-    { "/drone/infrared",     "sensor_infrared_t",    sizeof(sensor_infrared_t)    },
-    { "/drone/camera/meta",  "sensor_camera_meta_t", sizeof(sensor_camera_meta_t) },
-    /* Camera RGB uses a large heap buffer, not the shared stack msg_buf.
-     * size here is the max expected transport message size for subscribe. */
-    { "/drone/camera/rgb",   "foxglove.RawImage",
+    { "/drone/imu",          "sensor_imu_t",         SCHEMA_IMU,         sizeof(sensor_imu_t)         },
+    { "/drone/gnss",         "sensor_gnss_t",        SCHEMA_GNSS,        sizeof(sensor_gnss_t)        },
+    { "/drone/baro",         "sensor_baro_t",        SCHEMA_BARO,        sizeof(sensor_baro_t)        },
+    { "/drone/lidar",        "sensor_lidar_t",       SCHEMA_LIDAR,       sizeof(sensor_lidar_t)       },
+    { "/drone/infrared",     "sensor_infrared_t",    SCHEMA_INFRARED,    sizeof(sensor_infrared_t)    },
+    { "/drone/camera/meta",  "sensor_camera_meta_t", SCHEMA_CAMERA_META, sizeof(sensor_camera_meta_t) },
+    { "/drone/camera/rgb",   "foxglove.RawImage",    SCHEMA_RAW_IMAGE,
       sizeof(sensor_camera_rgb_hdr_t) + CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3 },
 };
 #define NUM_DRONE_TOPICS  (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0]))
@@ -75,6 +154,12 @@ static void bridge_accept_connection(foxglove_bridge_t *br) {
         close(cfd);
         return;
     }
+
+    int flag = 1;
+    setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
+    struct timeval snd_tv = { .tv_sec = 0, .tv_usec = 200000 };
+    setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
 
     br->clients[slot].fd       = cfd;
     br->clients[slot].alive    = true;
@@ -107,16 +192,13 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
                                      uint8_t *msg_buf, size_t msg_buf_sz,
                                      char *json_buf, size_t json_buf_sz) {
     size_t out_len = 0;
-    int rc = transport_read_next(&br->subs[ch],
-                                 msg_buf, msg_buf_sz, &out_len);
-    if (rc != 0 || out_len == 0) return;
+    int drained = 0;
 
-    /* Debug: print once per ~500 messages so the log doesn't flood */
-    static unsigned long dbg_count[FG_MAX_CHANNELS];
-    if (ch < FG_MAX_CHANNELS && ++dbg_count[ch] % 500 == 1) {
-        fprintf(stderr, "[fg_bridge] ch=%d (%s): read %zu bytes (msg #%lu)\n",
-                ch, br->channels[ch].topic, out_len, dbg_count[ch]);
+    while (transport_read_next(&br->subs[ch], msg_buf, msg_buf_sz,
+                               &out_len) == 0) {
+        if (out_len > 0) drained++;
     }
+    if (drained == 0) return;
 
     int jlen = fg_serializers[ch](msg_buf, json_buf, json_buf_sz);
     if (jlen <= 0 || jlen >= (int)json_buf_sz) return;
@@ -181,8 +263,15 @@ static void *bridge_thread(void *arg) {
             pfd_idx++;
         }
 
+        struct timespec ts_now;
+        clock_gettime(CLOCK_MONOTONIC, &ts_now);
+        uint64_t now_ns = (uint64_t)ts_now.tv_sec * 1000000000ULL +
+                          (uint64_t)ts_now.tv_nsec;
+
         for (int ch = 0; ch < br->num_channels; ch++) {
             if (br->cam_rgb_buf && ch == br->cam_rgb_ch) {
+                if (now_ns - br->cam_last_ns < 200000000ULL) continue;
+                br->cam_last_ns = now_ns;
                 bridge_broadcast_channel(br, ch,
                                          br->cam_rgb_buf, br->cam_rgb_buf_sz,
                                          br->cam_json_buf, br->cam_json_buf_sz);
@@ -220,7 +309,8 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
     for (int i = 0; i < NUM_DRONE_TOPICS && i < FG_MAX_CHANNELS; i++) {
         br->channels[i].id          = (uint32_t)(i + 1);
         br->channels[i].topic       = DRONE_TOPICS[i].topic;
-        br->channels[i].schema_name = DRONE_TOPICS[i].schema;
+        br->channels[i].schema_name = DRONE_TOPICS[i].schema_name;
+        br->channels[i].schema      = DRONE_TOPICS[i].schema;
         br->channels[i].msg_size    = DRONE_TOPICS[i].size;
 
         if (transport_subscribe(tp, DRONE_TOPICS[i].topic,
