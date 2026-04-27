@@ -383,8 +383,10 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
         br->clients[i].alive = false;
     }
 
-    int topic_count = NUM_DRONE_TOPICS < FG_MAX_CHANNELS ?
-                      NUM_DRONE_TOPICS : FG_MAX_CHANNELS;
+    int num_drone_topics = NUM_DRONE_TOPICS;
+    int max_channels = FG_MAX_CHANNELS;
+    int topic_count = num_drone_topics < max_channels ?
+                      num_drone_topics : max_channels;
     for (int i = 0; i < topic_count; i++) {
         br->channels[i].id          = (uint32_t)(i + 1);
         br->channels[i].topic       = DRONE_TOPICS[i].topic;
