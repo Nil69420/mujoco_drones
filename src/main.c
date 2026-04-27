@@ -25,8 +25,9 @@ static void print_usage(const char *prog) {
 #ifdef ENABLE_IPC
     printf("  --no-ipc         Disable IPC transport\n");
     printf("  --lidar-rays N   Number of LiDAR rays (default 36)\n");
-    printf("  --cam-width W    Camera width in pixels (default 160)\n");
-    printf("  --cam-height H   Camera height in pixels (default 120)\n");
+    printf("  --cam-width W    Camera width in pixels (default 640)\n");
+    printf("  --cam-height H   Camera height in pixels (default 360)\n");
+    printf("  --cam-fps F      Camera FPS (default 8.0)\n");
 #endif
     printf("  -h, --help       Show this help\n\n");
     printf("Interactive controls:\n");
@@ -65,6 +66,7 @@ typedef struct {
     int         lidar_rays;
     int         cam_w;
     int         cam_h;
+    double      cam_fps;
 #endif
 } cli_args_t;
 
@@ -76,8 +78,9 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
 #ifdef ENABLE_IPC
     args->no_ipc     = false;
     args->lidar_rays = 36;
-    args->cam_w      = 160;
-    args->cam_h      = 120;
+    args->cam_w      = 640;
+    args->cam_h      = 360;
+    args->cam_fps    = 8.0;
 #endif
 
     for (int i = 1; i < argc; i++) {
@@ -90,6 +93,7 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
         else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { args->lidar_rays = (int)strtol(argv[++i], NULL, 10); }
         else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { args->cam_w = (int)strtol(argv[++i], NULL, 10); }
         else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { args->cam_h = (int)strtol(argv[++i], NULL, 10); }
+        else if (!strcmp(argv[i], "--cam-fps")    && i+1 < argc) { args->cam_fps = strtod(argv[++i], NULL); }
 #endif
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             print_usage(argv[0]);
@@ -188,6 +192,7 @@ int main(int argc, char **argv) {
             scfg.lidar_num_rays = (uint16_t)args.lidar_rays;
             scfg.camera_width   = (uint16_t)args.cam_w;
             scfg.camera_height  = (uint16_t)args.cam_h;
+            scfg.camera_rate    = args.cam_fps;
 
             if (args.headless) {
                 scfg.enable.camera = false;

@@ -5,6 +5,7 @@
 #include "sensors/sensor_types.h"
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -38,7 +39,6 @@ struct foxglove_bridge {
     size_t   cam_rgb_buf_sz;
     size_t   cam_json_buf_sz;
     int      cam_rgb_ch;
-    uint64_t cam_last_ns;
 };
 
 /* Max camera resolution used to size the heap buffers for the RGB channel.
@@ -141,6 +141,40 @@ static const struct {
 #define NUM_DRONE_TOPICS  (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0]))
 #define DRONE_TOPIC_CAM_RGB_IDX 6
 
+static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
+                                       size_t msg_len,
+                                       size_t max_len) {
+    if (msg_len < sizeof(sensor_camera_rgb_hdr_t)) {
+        return false;
+    }
+
+    const sensor_camera_rgb_hdr_t *hdr = (const sensor_camera_rgb_hdr_t *)msg_buf;
+    if (hdr->width == 0 || hdr->height == 0 || hdr->channels != 3) {
+        return false;
+    }
+
+    size_t pixel_count = (size_t)hdr->width * (size_t)hdr->height;
+    if (pixel_count / (size_t)hdr->height != (size_t)hdr->width) {
+        return false;
+    }
+
+    size_t rgb_size = pixel_count * (size_t)hdr->channels;
+    if (rgb_size / (size_t)hdr->channels != pixel_count) {
+        return false;
+    }
+
+    size_t total = sizeof(sensor_camera_rgb_hdr_t) + rgb_size;
+    if (total < sizeof(sensor_camera_rgb_hdr_t)) {
+        return false;
+    }
+
+    if (total > msg_len || total > max_len) {
+        return false;
+    }
+
+    return true;
+}
+
 static void bridge_accept_connection(foxglove_bridge_t *br) {
     int cfd = accept(br->listen_fd, NULL, NULL);
     if (cfd < 0) return;
@@ -158,7 +192,10 @@ static void bridge_accept_connection(foxglove_bridge_t *br) {
     int flag = 1;
     setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-    struct timeval snd_tv = { .tv_sec = 0, .tv_usec = 200000 };
+    struct timeval rcv_tv = { .tv_sec = 0, .tv_usec = 50000 };
+    setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
+
+    struct timeval snd_tv = { .tv_sec = 0, .tv_usec = 5000 };
     setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
 
     br->clients[slot].fd       = cfd;
@@ -191,25 +228,59 @@ static void bridge_handle_client_data(foxglove_bridge_t *br, int ci,
 static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
                                      uint8_t *msg_buf, size_t msg_buf_sz,
                                      char *json_buf, size_t json_buf_sz) {
-    size_t out_len = 0;
-    int drained = 0;
+    enum { MAX_DRAIN_SUBSCRIBED = 64 };
+    enum { MAX_DRAIN_UNSUBSCRIBED = 1 };
+    enum { MAX_ZERO_LEN_READS = 4 };
 
-    while (transport_read_next(&br->subs[ch], msg_buf, msg_buf_sz,
-                               &out_len) == 0) {
-        if (out_len > 0) drained++;
+    uint32_t ch_id = br->channels[ch].id;
+    bool has_sub = false;
+    for (int ci = 0; ci < FG_MAX_CLIENTS; ci++) {
+        if (!br->clients[ci].alive) continue;
+        if (fg_find_sub(&br->clients[ci], ch_id)) {
+            has_sub = true;
+            break;
+        }
+    }
+    int max_drain = has_sub ? MAX_DRAIN_SUBSCRIBED : MAX_DRAIN_UNSUBSCRIBED;
+
+    size_t out_len = 0;
+    size_t last_valid_len = 0;
+    int drained = 0;
+    int zero_len_reads = 0;
+
+    for (int i = 0; i < max_drain; i++) {
+        if (transport_read_next(&br->subs[ch], msg_buf, msg_buf_sz,
+                                &out_len) != 0) {
+            break;
+        }
+        if (out_len > 0) {
+            drained++;
+            last_valid_len = out_len;
+            zero_len_reads = 0;
+        } else {
+            zero_len_reads++;
+            if (zero_len_reads >= MAX_ZERO_LEN_READS) {
+                break;
+            }
+        }
     }
     if (drained == 0) return;
+    if (!has_sub) return;
+
+    if (ch == br->cam_rgb_ch &&
+        !bridge_validate_camera_rgb(msg_buf, last_valid_len, br->cam_rgb_buf_sz)) {
+        return;
+    }
 
     int jlen = fg_serializers[ch](msg_buf, json_buf, json_buf_sz);
     if (jlen <= 0 || jlen >= (int)json_buf_sz) return;
 
     uint64_t ts = 0;
-    if (out_len >= sizeof(sensor_header_t)) {
+    if (last_valid_len >= sizeof(sensor_header_t)) {
         const sensor_header_t *hdr = (const sensor_header_t *)msg_buf;
         ts = hdr->timestamp_ns;
     }
 
-    uint32_t ch_id = br->channels[ch].id;
     for (int ci = 0; ci < FG_MAX_CLIENTS; ci++) {
         if (!br->clients[ci].alive) continue;
 
@@ -218,6 +289,12 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
 
         if (fg_send_message(br->clients[ci].fd, sub->sub_id,
                             ts, json_buf, (size_t)jlen) != 0) {
+            int send_err = errno;
+            if (ch == br->cam_rgb_ch &&
+                (send_err == EAGAIN || send_err == EWOULDBLOCK ||
+                 send_err == ETIMEDOUT || send_err == ENOBUFS)) {
+                continue;
+            }
             fprintf(stderr, "[foxglove] send failed, dropping client %d\n",
                     ci);
             fg_close_client(&br->clients[ci]);
@@ -263,15 +340,12 @@ static void *bridge_thread(void *arg) {
             pfd_idx++;
         }
 
-        struct timespec ts_now;
-        clock_gettime(CLOCK_MONOTONIC, &ts_now);
-        uint64_t now_ns = (uint64_t)ts_now.tv_sec * 1000000000ULL +
-                          (uint64_t)ts_now.tv_nsec;
-
         for (int ch = 0; ch < br->num_channels; ch++) {
+            if (ch == br->cam_rgb_ch && !br->cam_rgb_buf) {
+                continue;
+            }
+
             if (br->cam_rgb_buf && ch == br->cam_rgb_ch) {
-                if (now_ns - br->cam_last_ns < 500000000ULL) continue;
-                br->cam_last_ns = now_ns;
                 bridge_broadcast_channel(br, ch,
                                          br->cam_rgb_buf, br->cam_rgb_buf_sz,
                                          br->cam_json_buf, br->cam_json_buf_sz);
