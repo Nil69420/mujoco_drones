@@ -1,8 +1,19 @@
-# mujoco_drones
+# AeroCore
 
 High-fidelity quadrotor simulation built on [MuJoCo](https://mujoco.org/) with real-time IPC transport and live telemetry visualization.
 
 Simulates a Hummingbird quadrotor with a full sensor suite (IMU, GNSS, barometer, LiDAR, infrared, camera), PD attitude/position flight controller, and zero-copy IPC via [Renoir](https://github.com/Nil69420/renoir). A built-in [Foxglove](https://foxglove.dev/) WebSocket bridge enables real-time visualization from any Foxglove-compatible client.
+
+## Demo
+
+![Hummingbird flight demo](misc/humming.gif)
+
+This media file is large and tracked with Git LFS. If your clone does not pull it automatically:
+
+```bash
+git lfs install
+git lfs pull
+```
 
 ## Architecture
 
