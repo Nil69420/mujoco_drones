@@ -181,8 +181,10 @@ void viewer_loop(sim_t *sim) {
         mjr_render(viewport, &scn, &con);
 
         char overlay[2048];
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
+    #if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wformat-truncation"
+    #endif
         snprintf(overlay, sizeof(overlay),
                  "Target: (%.1f, %.1f, %.1f) yaw=%.0f deg\n"
                  "Pos:    (%.2f, %.2f, %.2f)\n"
@@ -191,7 +193,9 @@ void viewer_loop(sim_t *sim) {
                  sim->target.yaw * 180.0 / M_PI,
                  sim->data->qpos[0], sim->data->qpos[1], sim->data->qpos[2],
                  sim->data->time);
-#pragma GCC diagnostic pop
+    #if defined(__GNUC__) && !defined(__clang__)
+    #pragma GCC diagnostic pop
+    #endif
         mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport, overlay, NULL, &con);
 
         glfwSwapBuffers(window);

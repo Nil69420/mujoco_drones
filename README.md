@@ -6,20 +6,23 @@ Simulates a Hummingbird quadrotor with a full sensor suite (IMU, GNSS, barometer
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  MuJoCo Physics Engine                                  │
-│  (hummingbird.xml + scene.xml)                          │
-├──────────┬──────────┬───────────────────────────────────┤
-│ Viewer   │Controller│ Sensors                           │
-│ (GLFW/GL)│ PD(I)    │ IMU · GNSS · Baro · LiDAR · IR · │
-│          │          │ Camera                            │
-├──────────┴──────────┴───────────────────────────────────┤
-│  Renoir IPC Transport (zero-copy pub/sub)               │
-├─────────────────────────────────────────────────────────┤
-│  Foxglove WebSocket Bridge (ws://0.0.0.0:8765)          │
-└─────────────────────────────────────────────────────────┘
-```
+Runtime data path:
+
+1. MuJoCo advances rigid-body dynamics from actuator commands.
+2. Controller computes rotor thrust and spin commands from state estimates and target setpoint.
+3. Sensor subsystem publishes deterministic IMU, GNSS, barometer, LiDAR, infrared, and camera outputs.
+4. Renoir transport publishes sensor payloads over shared-memory channels with zero-copy semantics.
+5. Foxglove bridge drains transport topics and serves telemetry streams over WebSocket (`ws://0.0.0.0:8765`).
+
+Subsystem boundaries:
+
+| Subsystem | Responsibility | Primary files |
+|-----------|----------------|---------------|
+| Simulation core | Model loading, stepping loop, CLI integration | `src/main.c`, `model/scene.xml`, `model/hummingbird.xml` |
+| Control | Position/attitude control, actuator mapping | `src/controller.c`, `include/controller.h` |
+| Sensor synthesis | Signal generation, timing, camera rendering | `src/sensors/sensors.c`, `include/sensors/` |
+| IPC transport | Renoir topic publish/subscribe integration | `src/transport/transport_renoir.c`, `include/transport/` |
+| Telemetry serving | Foxglove protocol, framing, serialization | `src/foxglove/`, `include/foxglove/` |
 
 ## Prerequisites
 
@@ -74,7 +77,8 @@ cargo build --release --features c-api
 ./run.sh all --headless --duration 30     # Headless with Foxglove
 ./run.sh sim                              # Build + run without Foxglove
 ./run.sh analyze                          # ASan + UBSan dynamic analysis
-./run.sh analyze 5                        # Dynamic analysis, 5s duration
+./run.sh analyze --headless --duration 5  # ASan + UBSan targeted run
+./run.sh analyze-tsan --headless --duration 5
 ```
 
 ### Direct execution
@@ -86,7 +90,24 @@ cd build
 ./hummingbird --no-ipc                    # No IPC transport
 ./hummingbird --altitude 2.0             # Custom target altitude
 ./hummingbird --lidar-rays 72            # Custom LiDAR config
+./hummingbird --cam-width 640 --cam-height 360 --cam-fps 8
 ```
+
+## Dynamic Analysis
+
+AddressSanitizer + UndefinedBehaviorSanitizer:
+
+```bash
+./run.sh analyze --headless --duration 10
+```
+
+ThreadSanitizer:
+
+```bash
+./run.sh analyze-tsan --headless --duration 10
+```
+
+Both sanitizer workflows build dedicated debug trees (`build-analyze` and `build-tsan`) to avoid polluting release artifacts.
 
 ## Foxglove Visualization
 
