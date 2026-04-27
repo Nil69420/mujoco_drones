@@ -72,6 +72,15 @@ typedef struct {
 
 typedef struct {
     sensor_header_t header;
+    uint16_t width;
+    uint16_t height;
+    uint8_t  channels;
+    uint8_t  _pad[3];
+    /* Raw pixel bytes (width * height * channels) follow this header */
+} sensor_camera_rgb_hdr_t;
+
+typedef struct {
+    sensor_header_t header;
     float range_m;
     float range_min;
     float range_max;

@@ -1,4 +1,5 @@
 #include "foxglove/serialize.h"
+#include "foxglove/base64.h"
 #include "sensors/sensor_types.h"
 
 #include <stdio.h>
@@ -82,6 +83,35 @@ int fg_serialize_camera_meta(const void *data, char *buf, size_t sz) {
         (double)msg->fov_y, msg->rgb_size, msg->depth_size);
 }
 
+int fg_serialize_camera_rgb(const void *data, char *buf, size_t sz) {
+    const sensor_camera_rgb_hdr_t *hdr = data;
+    const uint8_t *pixels = (const uint8_t *)data + sizeof(sensor_camera_rgb_hdr_t);
+    size_t px_len = (size_t)hdr->width * hdr->height * hdr->channels;
+
+    int off = snprintf(buf, sz,
+        "{\"timestamp\":{\"sec\":%lu,\"nsec\":%u},"
+        "\"frame_id\":\"camera\","
+        "\"width\":%u,\"height\":%u,"
+        "\"encoding\":\"rgb8\","
+        "\"step\":%u,"
+        "\"data\":\"",
+        (unsigned long)(hdr->header.timestamp_ns / 1000000000UL),
+        (unsigned)(hdr->header.timestamp_ns % 1000000000UL),
+        hdr->width, hdr->height,
+        (unsigned)(hdr->width * hdr->channels));
+
+    if (off < 0 || (size_t)off + px_len * 2 >= sz) return -1;
+
+    size_t b64_len = fg_base64_encode(pixels, px_len, buf + off);
+    off += (int)b64_len;
+
+    if ((size_t)off + 3 > sz) return -1;
+    buf[off++] = '"';
+    buf[off++] = '}';
+    buf[off]   = '\0';
+    return off;
+}
+
 const fg_serialize_fn fg_serializers[] = {
     fg_serialize_imu,
     fg_serialize_gnss,
@@ -89,6 +119,7 @@ const fg_serialize_fn fg_serializers[] = {
     fg_serialize_lidar,
     fg_serialize_infrared,
     fg_serialize_camera_meta,
+    fg_serialize_camera_rgb,
 };
 
 const int fg_num_serializers =

@@ -41,14 +41,14 @@ sensor_config_t sensor_default_config(void) {
     cfg.gnss_rate     = 10.0;
     cfg.baro_rate     = 50.0;
     cfg.lidar_rate    = 30.0;
-    cfg.camera_rate   = 30.0;
+    cfg.camera_rate   = 8.0;
     cfg.infrared_rate = 100.0;
 
     cfg.lidar_num_rays  = 36;
     cfg.lidar_range_max = 30.0F;
 
-    cfg.camera_width  = 320;
-    cfg.camera_height = 240;
+    cfg.camera_width  = 640;
+    cfg.camera_height = 360;
     cfg.camera_fov    = 60.0F * (float)M_PI / 180.0F;
 
     cfg.gnss_origin_lat = 47.3667;
@@ -152,18 +152,19 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     if (mgr->config.enable.camera) {
         size_t rgb_sz   = (size_t)config->camera_width *
                           config->camera_height * 3;
+        size_t rgb_total = sizeof(sensor_camera_rgb_hdr_t) + rgb_sz;
         size_t depth_sz = (size_t)config->camera_width *
                           config->camera_height * sizeof(float);
 
         transport_advertise(tp, TOPIC_CAMERA_META,
                             sizeof(sensor_camera_meta_t),
                             &mgr->pub_camera_meta);
-        transport_advertise(tp, TOPIC_CAMERA_RGB,   rgb_sz,
+        transport_advertise(tp, TOPIC_CAMERA_RGB,   rgb_total,
                             &mgr->pub_camera_rgb);
         transport_advertise(tp, TOPIC_CAMERA_DEPTH, depth_sz,
                             &mgr->pub_camera_depth);
 
-        mgr->rgb_buf   = malloc(rgb_sz);
+        mgr->rgb_buf   = malloc(rgb_total);
         mgr->depth_buf = malloc(depth_sz);
         if (!mgr->rgb_buf || !mgr->depth_buf) {
             fprintf(stderr, "[sensors] ERROR: failed to allocate camera "
@@ -433,11 +434,35 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
                     &mgr->cam_view, mjCAT_ALL, &mgr->cam_scene);
     mjr_setBuffer(mjFB_OFFSCREEN, &mgr->cam_context);
     mjr_render(vp, &mgr->cam_scene, &mgr->cam_context);
-    mjr_readPixels(mgr->rgb_buf, mgr->depth_buf, vp, &mgr->cam_context);
+
+    uint8_t *pixels = mgr->rgb_buf + sizeof(sensor_camera_rgb_hdr_t);
+    mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
+
+    int row_bytes = w * 3;
+    uint8_t *temp_row = malloc((size_t)row_bytes);
+    if (temp_row) {
+        for (int y = 0; y < h / 2; y++) {
+            uint8_t *top = pixels + y * row_bytes;
+            uint8_t *bot = pixels + (h - 1 - y) * row_bytes;
+            memcpy(temp_row, top, (size_t)row_bytes);
+            memcpy(top, bot, (size_t)row_bytes);
+            memcpy(bot, temp_row, (size_t)row_bytes);
+        }
+        free(temp_row);
+    }
 
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
     size_t rgb_sz   = (size_t)(unsigned)w * (unsigned)h * 3;
     size_t depth_sz = (size_t)(unsigned)w * (unsigned)h * sizeof(float);
+
+    /* Fill camera RGB header so downstream consumers (bridge) have metadata */
+    sensor_camera_rgb_hdr_t *rgb_hdr = (sensor_camera_rgb_hdr_t *)mgr->rgb_buf;
+    rgb_hdr->header.timestamp_ns = t_ns;
+    rgb_hdr->header.sequence     = mgr->seq_camera;
+    rgb_hdr->header.sensor_id    = SENSOR_ID_CAMERA;
+    rgb_hdr->width    = (uint16_t)w;
+    rgb_hdr->height   = (uint16_t)h;
+    rgb_hdr->channels = 3;
 
     sensor_camera_meta_t meta = {0};
     meta.header.timestamp_ns = t_ns;
@@ -451,8 +476,9 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     meta.depth_size  = (uint32_t)depth_sz;
     meta.depth_scale = 1.0F;
 
-    transport_publish(&mgr->pub_camera_meta,  &meta,          sizeof(meta));
-    transport_publish(&mgr->pub_camera_rgb,   mgr->rgb_buf,   rgb_sz);
+    transport_publish(&mgr->pub_camera_meta,  &meta,        sizeof(meta));
+    transport_publish(&mgr->pub_camera_rgb,   mgr->rgb_buf,
+                      sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
     transport_publish(&mgr->pub_camera_depth, mgr->depth_buf, depth_sz);
 }
 

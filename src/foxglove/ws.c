@@ -16,7 +16,7 @@ static int write_all(int fd, const void *buf, size_t len) {
     const uint8_t *ptr = buf;
     size_t remaining = len;
     while (remaining > 0) {
-        ssize_t n = send(fd, ptr, remaining, 0);
+        ssize_t n = send(fd, ptr, remaining, MSG_NOSIGNAL);
         if (n < 0) {
             if (errno == EINTR) continue;
             return -1;

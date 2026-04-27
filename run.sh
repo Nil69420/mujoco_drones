@@ -73,6 +73,10 @@ case "$CMD" in
         echo "=== Running with sanitizers ==="
         export ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1:halt_on_error=0"
         export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0"
+        ASAN_LIB=$(cc -print-file-name=libasan.so 2>/dev/null || true)
+        if [[ "$ASAN_LIB" != "libasan.so" && -f "$ASAN_LIB" ]]; then
+            export LD_PRELOAD="${ASAN_LIB}${LD_PRELOAD:+:$LD_PRELOAD}"
+        fi
         exec ./hummingbird --headless --duration "${1:-10}" "${@:2}"
         ;;
 

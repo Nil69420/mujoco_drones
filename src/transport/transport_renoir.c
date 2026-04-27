@@ -153,13 +153,20 @@ static int renoir_tp_read_next(transport_sub_t *sub, void *buf,
     if (rc == BufferEmpty) return 1;
     if (rc != Success)     return -1;
 
-    size_t copy_len = msg.payload_len < buf_size ? msg.payload_len : buf_size;
-    if (msg.payload_ptr && copy_len > 0) {
-        memcpy(buf, msg.payload_ptr, copy_len);
+    if ((msg.payload_len > 0 && !msg.payload_ptr) || msg.payload_len > buf_size) {
+        if (out_len) {
+            *out_len = 0;
+        }
+        renoir_message_release(msg.handle);
+        return -1;
+    }
+
+    if (msg.payload_len > 0) {
+        memcpy(buf, msg.payload_ptr, msg.payload_len);
     }
 
     if (out_len) {
-        *out_len = copy_len;
+        *out_len = msg.payload_len;
     }
 
     renoir_message_release(msg.handle);

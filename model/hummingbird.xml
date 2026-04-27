@@ -15,7 +15,7 @@
   Rotor layout (+ config, top view):
         Front (0, CW)
             |
-    Left (1, CCW) -- + -- Right (3, CCW)
+    Left (1, CCW)  | + |  Right (3, CCW)
             |
         Back (2, CW)
 -->
@@ -41,7 +41,7 @@
             size="0.003" rgba="1 0 0 0.3"/>
 
       <!-- Forward-facing RGBD camera -->
-      <camera name="drone_camera" pos="0.08 0 -0.02"
+      <camera name="drone_camera" pos="0.07 0.07 -0.02"
               xyaxes="0 -1 0 0 0 1" fovy="60"/>
 
       <inertial pos="0 0 0" mass="0.68"

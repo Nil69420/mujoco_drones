@@ -160,6 +160,12 @@ void viewer_loop(sim_t *sim) {
 #ifdef ENABLE_IPC
         if (sim->ipc_enabled && sim->sensors.cam_due) {
             sensor_render_camera(&sim->sensors, sim->model, sim->data);
+            /* Restore the window framebuffer after offscreen camera render.
+             * The camera renders using its own context but shares the same
+             * underlying GL context; mjr_setBuffer leaves the offscreen FBO
+             * active, causing the display render to write to the wrong target
+             * and produce visible flickering. */
+            mjr_setBuffer(mjFB_WINDOW, &con);
         }
 #endif
 
