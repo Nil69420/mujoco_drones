@@ -34,6 +34,10 @@ if [[ "$BUILD_TYPE" == "lint" ]]; then
     BUILD_TYPE="release"
 fi
 
+if [[ "$RUN_LINT" == true ]]; then
+    BUILD_DIR="$SCRIPT_DIR/build-lint"
+fi
+
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 if [[ "$ENABLE_IPC" == "ON" ]]; then
@@ -75,10 +79,33 @@ fi
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-cmake "$SCRIPT_DIR" \
-    -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
-    -DENABLE_IPC="$ENABLE_IPC" \
-    -DENABLE_FOXGLOVE="$ENABLE_FOXGLOVE"
+if [[ "$RUN_LINT" == true ]]; then
+    LINT_CC="${CC:-}"
+    if [[ -z "$LINT_CC" ]]; then
+        for cand in clang clang-18 clang-17 clang-16 clang-15 clang-14 clang-13 clang-12 clang-11 clang-10; do
+            if command -v "$cand" >/dev/null 2>&1; then
+                LINT_CC="$cand"
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$LINT_CC" ]] || ! command -v "$LINT_CC" >/dev/null 2>&1; then
+        echo "ERROR: lint mode requires clang (clang or clang-10+)."
+        exit 1
+    fi
+
+    CC="$LINT_CC" cmake "$SCRIPT_DIR" \
+        -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+        -DCMAKE_C_COMPILER="$LINT_CC" \
+        -DENABLE_IPC="$ENABLE_IPC" \
+        -DENABLE_FOXGLOVE="$ENABLE_FOXGLOVE"
+else
+    cmake "$SCRIPT_DIR" \
+        -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE" \
+        -DENABLE_IPC="$ENABLE_IPC" \
+        -DENABLE_FOXGLOVE="$ENABLE_FOXGLOVE"
+fi
 
 make -j"$NPROC"
 

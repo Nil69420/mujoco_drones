@@ -438,15 +438,17 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     uint8_t *pixels = mgr->rgb_buf + sizeof(sensor_camera_rgb_hdr_t);
     mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
 
-    int row_bytes = w * 3;
-    uint8_t *temp_row = malloc((size_t)row_bytes);
+    size_t row_bytes = (size_t)(unsigned)w * 3U;
+    uint8_t *temp_row = malloc(row_bytes);
     if (temp_row) {
-        for (int y = 0; y < h / 2; y++) {
-            uint8_t *top = pixels + y * row_bytes;
-            uint8_t *bot = pixels + (h - 1 - y) * row_bytes;
-            memcpy(temp_row, top, (size_t)row_bytes);
-            memcpy(top, bot, (size_t)row_bytes);
-            memcpy(bot, temp_row, (size_t)row_bytes);
+        size_t half_rows = (size_t)(unsigned)h / 2U;
+        size_t h_sz = (size_t)(unsigned)h;
+        for (size_t row = 0; row < half_rows; row++) {
+            uint8_t *top = pixels + row * row_bytes;
+            uint8_t *bot = pixels + (h_sz - 1U - row) * row_bytes;
+            memcpy(temp_row, top, row_bytes);
+            memcpy(top, bot, row_bytes);
+            memcpy(bot, temp_row, row_bytes);
         }
         free(temp_row);
     }

@@ -136,10 +136,13 @@ static const struct {
     { "/drone/infrared",     "sensor_infrared_t",    SCHEMA_INFRARED,    sizeof(sensor_infrared_t)    },
     { "/drone/camera/meta",  "sensor_camera_meta_t", SCHEMA_CAMERA_META, sizeof(sensor_camera_meta_t) },
     { "/drone/camera/rgb",   "foxglove.RawImage",    SCHEMA_RAW_IMAGE,
-      sizeof(sensor_camera_rgb_hdr_t) + CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3 },
+      sizeof(sensor_camera_rgb_hdr_t) +
+      (size_t)CAM_BUF_MAX_W * (size_t)CAM_BUF_MAX_H * (size_t)3 },
 };
-#define NUM_DRONE_TOPICS  (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0]))
-#define DRONE_TOPIC_CAM_RGB_IDX 6
+enum {
+    NUM_DRONE_TOPICS = (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0])),
+    DRONE_TOPIC_CAM_RGB_IDX = 6,
+};
 
 static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
                                        size_t msg_len,
@@ -380,7 +383,9 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
         br->clients[i].alive = false;
     }
 
-    for (int i = 0; i < NUM_DRONE_TOPICS && i < FG_MAX_CHANNELS; i++) {
+    int topic_count = NUM_DRONE_TOPICS < FG_MAX_CHANNELS ?
+                      NUM_DRONE_TOPICS : FG_MAX_CHANNELS;
+    for (int i = 0; i < topic_count; i++) {
         br->channels[i].id          = (uint32_t)(i + 1);
         br->channels[i].topic       = DRONE_TOPICS[i].topic;
         br->channels[i].schema_name = DRONE_TOPICS[i].schema_name;
@@ -394,7 +399,7 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
                     DRONE_TOPICS[i].topic);
         }
     }
-    br->num_channels = NUM_DRONE_TOPICS;
+    br->num_channels = topic_count;
 
     /* Allocate dedicated heap buffers for the large camera RGB channel */
     br->cam_rgb_ch      = DRONE_TOPIC_CAM_RGB_IDX;

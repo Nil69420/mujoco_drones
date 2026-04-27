@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 project(mujoco_drones C)
 
+if(POLICY CMP0072)
+    cmake_policy(SET CMP0072 NEW)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -18,6 +22,7 @@ endif()
 message(STATUS "MuJoCo: ${MUJOCO_DIR}")
 
 find_package(glfw3 QUIET)
+set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL QUIET)
 find_package(Threads REQUIRED)
 
@@ -181,6 +186,9 @@ if(CLANG_TIDY)
 
     add_custom_target(lint
         COMMAND ${CLANG_TIDY}
+            -quiet
+            "-header-filter=^${CMAKE_SOURCE_DIR}/(src|include)/"
+            --warnings-as-errors=*
             --extra-arg=-Wno-unknown-warning-option
             -p ${CMAKE_BINARY_DIR}
             ${TIDY_SRCS}

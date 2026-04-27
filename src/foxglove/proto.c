@@ -44,9 +44,11 @@ int fg_send_advertise(int fd, const fg_channel_t *channels, int n) {
 
         if (channels[i].schema && channels[i].schema[0]) {
             size_t ej = 0;
-            for (const char *p = channels[i].schema; *p && ej + 2 < need; p++) {
-                if (*p == '"' || *p == '\\') esc[ej++] = '\\';
-                esc[ej++] = *p;
+            for (const char *schema_ptr = channels[i].schema;
+                 *schema_ptr && ej + 2 < need;
+                 schema_ptr++) {
+                if (*schema_ptr == '"' || *schema_ptr == '\\') esc[ej++] = '\\';
+                esc[ej++] = *schema_ptr;
             }
             esc[ej] = '\0';
 
@@ -121,6 +123,86 @@ int fg_parse_uint(const char *s, const char *key, uint32_t *out) {
     return 0;
 }
 
+static void fg_add_subscription(fg_client_t *client,
+                                uint32_t sub_id,
+                                uint32_t ch_id) {
+    if (ch_id == 0 || client->num_subs >= FG_MAX_SUBS) {
+        return;
+    }
+
+    client->subs[client->num_subs].sub_id     = sub_id;
+    client->subs[client->num_subs].channel_id = ch_id;
+    client->num_subs++;
+
+    fprintf(stderr,
+            "[fg_proto] subscribed: sub_id=%u channelId=%u (total=%d)\n",
+            sub_id, ch_id, client->num_subs);
+}
+
+static void fg_handle_subscribe_message(fg_client_t *client, const char *msg) {
+    const char *arr = strchr(msg, '[');
+    const char *cursor = arr ? arr + 1 : msg;
+
+    while (*cursor && *cursor != ']') {
+        const char *obj = strchr(cursor, '{');
+        if (!obj) {
+            break;
+        }
+
+        const char *obj_end = strchr(obj, '}');
+        if (!obj_end) {
+            break;
+        }
+
+        uint32_t sub_id = 0;
+        uint32_t ch_id = 0;
+        int got_sub = fg_parse_uint(obj, "\"id\"", &sub_id);
+        int got_ch  = fg_parse_uint(obj, "\"channelId\"", &ch_id);
+        if (got_sub == 0 && got_ch == 0) {
+            fg_add_subscription(client, sub_id, ch_id);
+        }
+
+        cursor = obj_end + 1;
+    }
+}
+
+static void fg_remove_subscription(fg_client_t *client, uint32_t sub_id) {
+    for (int i = 0; i < client->num_subs; i++) {
+        if (client->subs[i].sub_id == sub_id) {
+            client->subs[i] = client->subs[--client->num_subs];
+            return;
+        }
+    }
+}
+
+static void fg_handle_unsubscribe_message(fg_client_t *client, const char *msg) {
+    const char *ids = strstr(msg, "\"subscriptionIds\"");
+    if (!ids) {
+        return;
+    }
+
+    const char *cursor = strchr(ids, '[');
+    if (!cursor) {
+        return;
+    }
+
+    cursor++;
+    while (*cursor && *cursor != ']') {
+        char *end = NULL;
+        uint32_t sub_id = (uint32_t)strtoul(cursor, &end, 10);
+        if (end == cursor) {
+            break;
+        }
+
+        fg_remove_subscription(client, sub_id);
+
+        cursor = end;
+        while (*cursor == ',' || *cursor == ' ') {
+            cursor++;
+        }
+    }
+}
+
 void fg_handle_client_message(fg_client_t *client, const char *msg,
                               size_t len) {
     char buf[4096];
@@ -129,53 +211,12 @@ void fg_handle_client_message(fg_client_t *client, const char *msg,
     buf[copy] = '\0';
 
     if (strstr(buf, "\"subscribe\"")) {
-        /* Foxglove Studio may send all subscriptions in one message:
-         * {"op":"subscribe","subscriptions":[{"id":1,"channelId":1},...]}
-         * Walk every {…} object in the array so all channels are registered. */
-        const char *arr = strchr(buf, '[');
-        const char *p   = arr ? arr + 1 : buf;
-        while (*p && *p != ']') {
-            const char *obj = strchr(p, '{');
-            if (!obj) break;
-            const char *end = strchr(obj, '}');
-            if (!end) break;
+        fg_handle_subscribe_message(client, buf);
+        return;
+    }
 
-            uint32_t sub_id = 0, ch_id = 0;
-            int got_sub = fg_parse_uint(obj, "\"id\"", &sub_id);
-            int got_ch  = fg_parse_uint(obj, "\"channelId\"", &ch_id);
-            if (got_sub == 0 && got_ch == 0 && ch_id > 0 &&
-                client->num_subs < FG_MAX_SUBS) {
-                client->subs[client->num_subs].sub_id     = sub_id;
-                client->subs[client->num_subs].channel_id = ch_id;
-                client->num_subs++;
-                fprintf(stderr,
-                        "[fg_proto] subscribed: sub_id=%u channelId=%u "
-                        "(total=%d)\n",
-                        sub_id, ch_id, client->num_subs);
-            }
-            p = end + 1;
-        }
-    } else if (strstr(buf, "\"unsubscribe\"")) {
-        const char *pos = strstr(buf, "\"subscriptionIds\"");
-        if (pos) {
-            pos = strchr(pos, '[');
-            if (pos) {
-                pos++;
-                while (*pos && *pos != ']') {
-                    char *end = NULL;
-                    uint32_t sub_id = (uint32_t)strtoul(pos, &end, 10);
-                    if (end == pos) break;
-                    for (int i = 0; i < client->num_subs; i++) {
-                        if (client->subs[i].sub_id == sub_id) {
-                            client->subs[i] = client->subs[--client->num_subs];
-                            break;
-                        }
-                    }
-                    pos = end;
-                    while (*pos == ',' || *pos == ' ') pos++;
-                }
-            }
-        }
+    if (strstr(buf, "\"unsubscribe\"")) {
+        fg_handle_unsubscribe_message(client, buf);
     }
 }
 
