@@ -1,1 +1,6 @@
 build/
+build-analyze/
+build-debug/
+build-lint/
+build-tsan/
+test_ws_client.py
