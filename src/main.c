@@ -9,6 +9,7 @@
 #ifdef ENABLE_IPC
 #include "transport/transport_renoir.h"
 #include "sensors/sensors.h"
+#include "scenario.h"
 #ifdef ENABLE_FOXGLOVE
 #include "foxglove/foxglove.h"
 #endif
@@ -28,6 +29,7 @@ static void print_usage(const char *prog) {
     printf("  --cam-width W    Camera width in pixels (default 640)\n");
     printf("  --cam-height H   Camera height in pixels (default 360)\n");
     printf("  --cam-fps F      Camera FPS (default 8.0)\n");
+    printf("  --scenario FILE  Run a composable multi-vehicle scenario\n");
 #endif
     printf("  -h, --help       Show this help\n\n");
     printf("Interactive controls:\n");
@@ -58,6 +60,7 @@ static const char *find_model(void) {
 
 typedef struct {
     bool        headless;
+    bool        duration_set;
     double      duration;
     double      altitude;
     const char *model_path;
@@ -67,11 +70,13 @@ typedef struct {
     int         cam_w;
     int         cam_h;
     double      cam_fps;
+    const char *scenario_path;
 #endif
 } cli_args_t;
 
 static int parse_args(int argc, char **argv, cli_args_t *args) {
     args->headless   = false;
+    args->duration_set = false;
     args->duration   = 10.0;
     args->altitude   = 1.0;
     args->model_path = NULL;
@@ -81,11 +86,12 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
     args->cam_w      = 640;
     args->cam_h      = 360;
     args->cam_fps    = 8.0;
+    args->scenario_path = NULL;
 #endif
 
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--headless"))                  { args->headless = true; }
-        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { args->duration   = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { args->duration   = strtod(argv[++i], NULL); args->duration_set = true; }
         else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   { args->altitude   = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--model")    && i+1 < argc)   { args->model_path = argv[++i]; }
 #ifdef ENABLE_IPC
@@ -94,6 +100,7 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
         else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { args->cam_w = (int)strtol(argv[++i], NULL, 10); }
         else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { args->cam_h = (int)strtol(argv[++i], NULL, 10); }
         else if (!strcmp(argv[i], "--cam-fps")    && i+1 < argc) { args->cam_fps = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--scenario")   && i+1 < argc) { args->scenario_path = argv[++i]; }
 #endif
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             print_usage(argv[0]);
@@ -171,6 +178,13 @@ int main(int argc, char **argv) {
     if (parse_rc > 0) return 0;
     if (parse_rc < 0) return 1;
 
+#ifdef ENABLE_IPC
+    if (args.scenario_path) {
+        return scenario_main_run(args.scenario_path, args.headless,
+                                 args.duration_set ? args.duration : 0.0);
+    }
+#endif
+
     const char *model_path = args.model_path;
     if (!model_path) model_path = find_model();
     if (!model_path) {
@@ -225,9 +239,16 @@ int main(int argc, char **argv) {
             if (args.headless) {
                 scfg.enable.camera = false;
             }
+#ifndef ENABLE_FOXGLOVE
+            if (!args.headless) {
+                fprintf(stderr, "[main] WARNING: camera stream disabled "
+                                "(no Foxglove bridge to consume it)\n");
+                scfg.enable.camera = false;
+            }
+#endif
 
             if (sensor_init(&sim.sensors, sim.model,
-                            &sim.transport, &scfg) != 0) {
+                            &sim.transport, &scfg, NULL) != 0) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
                 sim.ipc_enabled = false;
             }

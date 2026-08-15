@@ -84,7 +84,6 @@ typedef struct {
     transport_pub_t pub_infrared;
     transport_pub_t pub_camera_meta;
     transport_pub_t pub_camera_rgb;
-    transport_pub_t pub_camera_depth;
 
     transport_sub_t sub_command;
 
@@ -101,13 +100,18 @@ typedef struct {
     double gyro_bias[3];
     double accel_bias[3];
 
+    sensor_imu_t  imu_latest;
+    sensor_gnss_t gnss_latest;
+    sensor_baro_t baro_latest;
+
     noise_rng_t rng;
 } sensor_mgr_t;
 
 sensor_config_t sensor_default_config(void);
 
 int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
-                transport_t *tp, const sensor_config_t *config);
+                transport_t *tp, const sensor_config_t *config,
+                const char *topic_prefix);
 
 void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
                    setpoint_t *target);

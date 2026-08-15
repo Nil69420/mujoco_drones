@@ -49,7 +49,7 @@ static void renoir_tp_shutdown(transport_t *tp) {
 static int renoir_tp_advertise(transport_t *tp, const char *topic,
                             size_t max_msg_size, transport_pub_t *pub) {
     renoir_ctx_t *ctx = tp->ctx;
-    enum RenoirErrorCode rc = Success;
+    enum RenoirErrorCode rc = RenoirErrorCode_Success;
 
     bool large = (max_msg_size > LARGE_PAYLOAD_THRESHOLD);
     struct RenoirTopicOptions opts = {
@@ -63,7 +63,7 @@ static int renoir_tp_advertise(transport_t *tp, const char *topic,
 
     RenoirTopicId tid = {0};
     rc = renoir_topic_register(ctx->topic_mgr, topic, &opts, &tid);
-    if (rc != Success) {
+    if (rc != RenoirErrorCode_Success) {
         fprintf(stderr, "[transport/renoir] topic_register '%s' failed: %d\n",
                 topic, rc);
         return -1;
@@ -75,7 +75,7 @@ static int renoir_tp_advertise(transport_t *tp, const char *topic,
     struct RenoirPublisherOptions pub_opts = {0};
     rc = renoir_publisher_create(ctx->topic_mgr, topic, &pub_opts,
                                  &pctx->publisher);
-    if (rc != Success) {
+    if (rc != RenoirErrorCode_Success) {
         fprintf(stderr, "[transport/renoir] publisher_create '%s' failed: %d\n",
                 topic, rc);
         free(pctx);
@@ -89,7 +89,7 @@ static int renoir_tp_advertise(transport_t *tp, const char *topic,
 static int renoir_tp_subscribe(transport_t *tp, const char *topic,
                             size_t max_msg_size, transport_sub_t *sub) {
     renoir_ctx_t *ctx = tp->ctx;
-    enum RenoirErrorCode rc = Success;
+    enum RenoirErrorCode rc = RenoirErrorCode_Success;
 
     bool large = (max_msg_size > LARGE_PAYLOAD_THRESHOLD);
     struct RenoirTopicOptions opts = {
@@ -103,7 +103,7 @@ static int renoir_tp_subscribe(transport_t *tp, const char *topic,
 
     RenoirTopicId tid = {0};
     rc = renoir_topic_register(ctx->topic_mgr, topic, &opts, &tid);
-    if (rc != Success) {
+    if (rc != RenoirErrorCode_Success) {
         fprintf(stderr, "[transport/renoir] topic_register '%s' failed: %d\n",
                 topic, rc);
         return -1;
@@ -117,7 +117,7 @@ static int renoir_tp_subscribe(transport_t *tp, const char *topic,
     };
     rc = renoir_subscriber_create(ctx->topic_mgr, topic, &sub_opts,
                                   &sctx->subscriber);
-    if (rc != Success) {
+    if (rc != RenoirErrorCode_Success) {
         fprintf(stderr, "[transport/renoir] subscriber_create '%s' failed: %d\n",
                 topic, rc);
         free(sctx);
@@ -137,8 +137,8 @@ static int renoir_tp_publish(transport_pub_t *pub, const void *data, size_t len)
         (const uint8_t *)data, len,
         NULL, NULL);
 
-    if (rc == BufferFull) return 0;
-    return (rc == Success) ? 0 : -1;
+    if (rc == RenoirErrorCode_BufferFull) return 0;
+    return (rc == RenoirErrorCode_Success) ? 0 : -1;
 }
 
 static int renoir_tp_read_next(transport_sub_t *sub, void *buf,
@@ -150,8 +150,8 @@ static int renoir_tp_read_next(transport_sub_t *sub, void *buf,
     enum RenoirErrorCode rc = renoir_subscribe_read_next(
         sctx->subscriber, &msg, 0);
 
-    if (rc == BufferEmpty) return 1;
-    if (rc != Success)     return -1;
+    if (rc == RenoirErrorCode_BufferEmpty) return 1;
+    if (rc != RenoirErrorCode_Success)     return -1;
 
     if ((msg.payload_len > 0 && !msg.payload_ptr) || msg.payload_len > buf_size) {
         if (out_len) {

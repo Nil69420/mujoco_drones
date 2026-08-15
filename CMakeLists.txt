@@ -73,6 +73,26 @@ if(ENABLE_IPC)
             src/foxglove/bridge.c
         )
     endif()
+
+    list(APPEND VEHICLE_SOURCES
+        src/vehicle/controller_registry.c
+        src/vehicle/controllers/pd_multicopter.c
+        src/vehicle/controllers/fixedwing_basic.c
+        src/vehicle/estimator_registry.c
+        src/vehicle/estimators/ground_truth.c
+        src/vehicle/estimators/complementary_filter.c
+        src/vehicle/localization_registry.c
+        src/vehicle/localization/ground_truth.c
+        src/vehicle/localization/gnss.c
+        src/vehicle/airframe_registry.c
+        src/environments/environment_registry.c
+        src/environments/desert.c
+        src/environments/forest.c
+        src/vehicle/vehicle.c
+        src/vehicle/assembly_config.c
+        src/scenario_main.c
+    )
+    list(APPEND SOURCES ${VEHICLE_SOURCES})
 endif()
 
 add_executable(hummingbird ${SOURCES})

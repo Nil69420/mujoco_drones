@@ -7,24 +7,38 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TOPIC_IMU           "/drone/imu"
-#define TOPIC_GNSS          "/drone/gnss"
-#define TOPIC_BARO          "/drone/baro"
-#define TOPIC_LIDAR         "/drone/lidar"
-#define TOPIC_INFRARED      "/drone/infrared"
-#define TOPIC_CAMERA_META   "/drone/camera/meta"
-#define TOPIC_CAMERA_RGB    "/drone/camera/rgb"
-#define TOPIC_CAMERA_DEPTH  "/drone/camera/depth"
-#define TOPIC_COMMAND       "/drone/command"
+static void build_topic(char *buf, size_t bufsz, const char *prefix,
+                        const char *suffix) {
+    snprintf(buf, bufsz, "/%s%s", prefix ? prefix : "drone", suffix);
+}
 
-static int resolve_sensor_adr(const mjModel *m, const char *name) {
-    int id = mj_name2id(m, mjOBJ_SENSOR, name);
+static void build_name(char *buf, size_t bufsz, const char *prefix,
+                       const char *name) {
+    if (prefix) {
+        snprintf(buf, bufsz, "%s_%s", prefix, name);
+    } else {
+        snprintf(buf, bufsz, "%s", name);
+    }
+}
+
+static int resolve_sensor_adr(const mjModel *m, const char *prefix,
+                              const char *name) {
+    char full[64];
+    build_name(full, sizeof(full), prefix, name);
+    int id = mj_name2id(m, mjOBJ_SENSOR, full);
     if (id < 0) {
         fprintf(stderr, "[sensors] WARNING: sensor '%s' not found in model\n",
-                name);
+                full);
         return -1;
     }
     return m->sensor_adr[id];
+}
+
+static int resolve_site_id(const mjModel *m, const char *prefix,
+                           const char *name) {
+    char full[64];
+    build_name(full, sizeof(full), prefix, name);
+    return mj_name2id(m, mjOBJ_SITE, full);
 }
 
 sensor_config_t sensor_default_config(void) {
@@ -74,26 +88,52 @@ static int rate_to_interval(double rate_hz, double timestep) {
 }
 
 int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
-                transport_t *tp, const sensor_config_t *config) {
+                transport_t *tp, const sensor_config_t *config,
+                const char *topic_prefix) {
     memset(mgr, 0, sizeof(*mgr));
     mgr->config = *config;
 
+    char topic_imu[64], topic_gnss[64], topic_baro[64], topic_lidar[64];
+    char topic_infrared[64], topic_camera_meta[64], topic_camera_rgb[64];
+    char topic_command[64];
+    build_topic(topic_imu,        sizeof(topic_imu),        topic_prefix, "/imu");
+    build_topic(topic_gnss,       sizeof(topic_gnss),       topic_prefix, "/gnss");
+    build_topic(topic_baro,       sizeof(topic_baro),       topic_prefix, "/baro");
+    build_topic(topic_lidar,      sizeof(topic_lidar),      topic_prefix, "/lidar");
+    build_topic(topic_infrared,   sizeof(topic_infrared),   topic_prefix, "/infrared");
+    build_topic(topic_camera_meta,sizeof(topic_camera_meta),topic_prefix, "/camera/meta");
+    build_topic(topic_camera_rgb, sizeof(topic_camera_rgb), topic_prefix, "/camera/rgb");
+    build_topic(topic_command,    sizeof(topic_command),    topic_prefix, "/command");
+
     double dt = model->opt.timestep;
 
-    mgr->adr_accel   = resolve_sensor_adr(model, "imu_accel");
-    mgr->adr_gyro    = resolve_sensor_adr(model, "imu_gyro");
-    mgr->adr_quat    = resolve_sensor_adr(model, "orientation");
-    mgr->adr_pos     = resolve_sensor_adr(model, "position");
-    mgr->adr_heading = resolve_sensor_adr(model, "heading");
-    mgr->adr_linvel  = resolve_sensor_adr(model, "linvel");
-    mgr->adr_mag_y   = resolve_sensor_adr(model, "mag_y");
-    mgr->adr_mag_z   = resolve_sensor_adr(model, "mag_z");
+    mgr->adr_accel   = resolve_sensor_adr(model, topic_prefix, "imu_accel");
+    mgr->adr_gyro    = resolve_sensor_adr(model, topic_prefix, "imu_gyro");
+    mgr->adr_quat    = resolve_sensor_adr(model, topic_prefix, "orientation");
+    mgr->adr_pos     = resolve_sensor_adr(model, topic_prefix, "position");
+    mgr->adr_heading = resolve_sensor_adr(model, topic_prefix, "heading");
+    mgr->adr_linvel  = resolve_sensor_adr(model, topic_prefix, "linvel");
+    mgr->adr_mag_y   = resolve_sensor_adr(model, topic_prefix, "mag_y");
+    mgr->adr_mag_z   = resolve_sensor_adr(model, topic_prefix, "mag_z");
 
-    mgr->site_imu      = mj_name2id(model, mjOBJ_SITE, "imu_site");
-    mgr->site_lidar    = mj_name2id(model, mjOBJ_SITE, "lidar_site");
-    mgr->site_infrared = mj_name2id(model, mjOBJ_SITE, "infrared_site");
-    mgr->body_base     = mj_name2id(model, mjOBJ_BODY, "base_link");
-    mgr->camera_id     = mj_name2id(model, mjOBJ_CAMERA, "drone_camera");
+    mgr->site_imu      = resolve_site_id(model, topic_prefix, "imu_site");
+    mgr->site_lidar    = resolve_site_id(model, topic_prefix, "lidar_site");
+    mgr->site_infrared = resolve_site_id(model, topic_prefix, "infrared_site");
+    {
+        char full[64];
+        if (topic_prefix) {
+            build_name(full, sizeof(full), topic_prefix, "base_link");
+        } else {
+            snprintf(full, sizeof(full), "%s", "base_link");
+        }
+        mgr->body_base = mj_name2id(model, mjOBJ_BODY, full);
+        if (topic_prefix) {
+            build_name(full, sizeof(full), topic_prefix, "drone_camera");
+        } else {
+            snprintf(full, sizeof(full), "%s", "drone_camera");
+        }
+        mgr->camera_id = mj_name2id(model, mjOBJ_CAMERA, full);
+    }
 
     if (mgr->adr_accel < 0 || mgr->adr_gyro < 0 || mgr->adr_quat < 0 ||
         mgr->adr_pos < 0 || mgr->body_base < 0) {
@@ -126,47 +166,47 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     mgr->dec_lidar = mgr->dec_camera = mgr->dec_infrared = 1;
 
     if (mgr->config.enable.imu) {
-        if (transport_advertise(tp, TOPIC_IMU,
+        if (transport_advertise(tp, topic_imu,
                                 sizeof(sensor_imu_t), &mgr->pub_imu) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling IMU\n", TOPIC_IMU);
+                            "disabling IMU\n", topic_imu);
             mgr->config.enable.imu = false;
         }
     }
 
     if (mgr->config.enable.gnss) {
-        if (transport_advertise(tp, TOPIC_GNSS,
+        if (transport_advertise(tp, topic_gnss,
                                 sizeof(sensor_gnss_t), &mgr->pub_gnss) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling GNSS\n", TOPIC_GNSS);
+                            "disabling GNSS\n", topic_gnss);
             mgr->config.enable.gnss = false;
         }
     }
 
     if (mgr->config.enable.baro) {
-        if (transport_advertise(tp, TOPIC_BARO,
+        if (transport_advertise(tp, topic_baro,
                                 sizeof(sensor_baro_t), &mgr->pub_baro) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling barometer\n", TOPIC_BARO);
+                            "disabling barometer\n", topic_baro);
             mgr->config.enable.baro = false;
         }
     }
 
     if (mgr->config.enable.lidar) {
-        if (transport_advertise(tp, TOPIC_LIDAR,
+        if (transport_advertise(tp, topic_lidar,
                                 sizeof(sensor_lidar_t), &mgr->pub_lidar) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling LiDAR\n", TOPIC_LIDAR);
+                            "disabling LiDAR\n", topic_lidar);
             mgr->config.enable.lidar = false;
         }
     }
 
     if (mgr->config.enable.infrared) {
-        if (transport_advertise(tp, TOPIC_INFRARED,
+        if (transport_advertise(tp, topic_infrared,
                                 sizeof(sensor_infrared_t),
                                 &mgr->pub_infrared) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling infrared\n", TOPIC_INFRARED);
+                            "disabling infrared\n", topic_infrared);
             mgr->config.enable.infrared = false;
         }
     }
@@ -175,24 +215,21 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
         size_t rgb_sz   = (size_t)config->camera_width *
                           config->camera_height * 3;
         size_t rgb_total = sizeof(sensor_camera_rgb_hdr_t) + rgb_sz;
+        size_t rgb_max   = sizeof(sensor_camera_rgb_hdr_t) +
+                           (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3;
         size_t depth_sz = (size_t)config->camera_width *
                           config->camera_height * sizeof(float);
 
-        if (transport_advertise(tp, TOPIC_CAMERA_META,
+        if (transport_advertise(tp, topic_camera_meta,
                                 sizeof(sensor_camera_meta_t),
                                 &mgr->pub_camera_meta) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling camera\n", TOPIC_CAMERA_META);
+                            "disabling camera\n", topic_camera_meta);
             mgr->config.enable.camera = false;
-        } else if (transport_advertise(tp, TOPIC_CAMERA_RGB, rgb_total,
+        } else if (transport_advertise(tp, topic_camera_rgb, rgb_max,
                                        &mgr->pub_camera_rgb) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling camera\n", TOPIC_CAMERA_RGB);
-            mgr->config.enable.camera = false;
-        } else if (transport_advertise(tp, TOPIC_CAMERA_DEPTH, depth_sz,
-                                       &mgr->pub_camera_depth) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling camera\n", TOPIC_CAMERA_DEPTH);
+                            "disabling camera\n", topic_camera_rgb);
             mgr->config.enable.camera = false;
         }
 
@@ -208,11 +245,11 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     }
 
     if (mgr->config.enable.command) {
-        if (transport_subscribe(tp, TOPIC_COMMAND,
+        if (transport_subscribe(tp, topic_command,
                                 sizeof(command_setpoint_t),
                                 &mgr->sub_command) != 0) {
             fprintf(stderr, "[sensors] ERROR: failed to subscribe to %s, "
-                            "command uplink disabled\n", TOPIC_COMMAND);
+                            "command uplink disabled\n", topic_command);
             mgr->config.enable.command = false;
         }
     }
@@ -257,6 +294,7 @@ static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
                4 * sizeof(double));
     }
 
+    mgr->imu_latest = msg;
     transport_publish(&mgr->pub_imu, &msg, sizeof(msg));
 }
 
@@ -292,6 +330,7 @@ static void read_gnss(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     msg.longitude += noise_gaussian(&mgr->rng, noise_m / R_EARTH) * (180.0 / M_PI);
     msg.altitude  += noise_gaussian(&mgr->rng, noise_m);
 
+    mgr->gnss_latest = msg;
     transport_publish(&mgr->pub_gnss, &msg, sizeof(msg));
 }
 
@@ -309,6 +348,7 @@ static void read_baro(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     msg.temperature_c = 15.0;
     msg.pressure_pa = 101325.0 * pow(1.0 - 0.0065 * alt / 288.15, 5.2561);
 
+    mgr->baro_latest = msg;
     transport_publish(&mgr->pub_baro, &msg, sizeof(msg));
 }
 
@@ -522,10 +562,9 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     meta.depth_size  = (uint32_t)depth_sz;
     meta.depth_scale = 1.0F;
 
-    transport_publish(&mgr->pub_camera_meta,  &meta,        sizeof(meta));
-    transport_publish(&mgr->pub_camera_rgb,   mgr->rgb_buf,
+    transport_publish(&mgr->pub_camera_meta, &meta, sizeof(meta));
+    transport_publish(&mgr->pub_camera_rgb,  mgr->rgb_buf,
                       sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
-    transport_publish(&mgr->pub_camera_depth, mgr->depth_buf, depth_sz);
 }
 
 void sensor_cleanup(sensor_mgr_t *mgr) {
@@ -536,7 +575,6 @@ void sensor_cleanup(sensor_mgr_t *mgr) {
     transport_close_pub(&mgr->pub_infrared);
     transport_close_pub(&mgr->pub_camera_meta);
     transport_close_pub(&mgr->pub_camera_rgb);
-    transport_close_pub(&mgr->pub_camera_depth);
 
     transport_close_sub(&mgr->sub_command);
 

@@ -11,11 +11,6 @@ enum {
     FG_MAX_CHANNELS  = 16,
 };
 
-enum {
-    CAM_BUF_MAX_W = 1280,
-    CAM_BUF_MAX_H = 720,
-};
-
 typedef struct foxglove_bridge foxglove_bridge_t;
 
 foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port);

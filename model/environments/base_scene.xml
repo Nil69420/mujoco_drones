@@ -1,0 +1,46 @@
+<!--
+  Base scene for the scenario path (Stage 1). Same compiler/option/
+  solver/visual/default blocks as model/scene.xml (copied, not diverged),
+  plus the global scene lights. No ground/environment content — the
+  environment generators (src/environments/) populate the worldbody
+  procedurally; airframes are attached via mjs_attach.
+-->
+<mujoco model="mujoco_drones_base">
+
+  <compiler angle="radian" meshdir="../../meshes"/>
+
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="RK4"
+          cone="pyramidal" impratio="2">
+    <flag contact="enable" warmstart="enable"/>
+  </option>
+
+  <size nconmax="256" njmax="512"/>
+
+  <visual>
+    <headlight diffuse="0.5 0.5 0.5" ambient="0.2 0.2 0.2" specular="0.1 0.1 0.1"/>
+    <rgba fog="0.65 0.72 0.82 1"/>
+    <map znear="0.01" zfar="500" fogstart="30" fogend="120"
+         shadowscale="0.5" force="0.02"/>
+    <quality shadowsize="4096"/>
+  </visual>
+
+  <default>
+    <joint damping="0.0005"/>
+    <geom contype="1" conaffinity="1" condim="3" friction="1 0.5 0.1"/>
+  </default>
+
+  <worldbody>
+    <light name="sun" directional="true"
+           diffuse="0.9 0.87 0.8" specular="0.4 0.38 0.35"
+           pos="0 0 20" dir="-0.3 -0.4 -1" castshadow="true"/>
+
+    <light name="fill" directional="true"
+           diffuse="0.35 0.4 0.5" specular="0.05 0.05 0.08"
+           pos="15 15 10" dir="-0.5 -0.5 -0.7" castshadow="false"/>
+
+    <light name="sky" directional="true"
+           diffuse="0.25 0.3 0.4" specular="0 0 0"
+           pos="0 0 20" dir="0 0 -1" castshadow="false"/>
+  </worldbody>
+
+</mujoco>

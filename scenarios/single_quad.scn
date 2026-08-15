@@ -1,0 +1,12 @@
+[scenario]
+environment = desert
+environment_seed = 42
+duration = 15.0
+
+[vehicle drone0]
+airframe = quad_x
+controller = pd_multicopter
+estimator = ground_truth
+localization = ground_truth
+spawn = 0.0 0.0 1.0
+yaw = 0.0

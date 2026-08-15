@@ -79,6 +79,11 @@ typedef struct {
     /* Raw pixel bytes (width * height * channels) follow this header */
 } sensor_camera_rgb_hdr_t;
 
+enum {
+    CAM_BUF_MAX_W = 1280,
+    CAM_BUF_MAX_H = 720,
+};
+
 typedef struct {
     sensor_header_t header;
     float range_m;

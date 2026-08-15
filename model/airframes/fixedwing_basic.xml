@@ -1,0 +1,153 @@
+<mujoco model="fixedwing_basic">
+  <!--
+    RC-scale conventional fixed-wing airframe for Stage 1.
+    Attachable fragment: all names unprefixed (mjs_attach adds the prefix).
+    Conventions matched to src/vehicle/controllers/fixedwing_basic.c:
+      channel[0]=aileron_left  (+ = left TE down -> left wing more lift)
+      channel[1]=aileron_right (+ = right TE down)
+      channel[2]=elevator      (+ = TE up -> nose up)
+      channel[3]=rudder        (+ = TE toward +Y; sign validated in flight)
+      channel[4]=throttle      (0..1, force along +X at prop site)
+    Aerodynamics: MuJoCo ellipsoid fluid model (option density/viscosity +
+    per-geom fluidshape="ellipsoid" + fluidcoef). Fluid geoms are
+    contype=0/conaffinity=0 (no collision).
+    Note: the propeller uses a general site-force actuator, not a velocity
+    actuator on the hinge, because the ellipsoid fluid model produces no
+    axial thrust from a spinning body (Magnus acts perpendicular to the
+    spin axis) - see implementation log / plan amendment.
+  -->
+
+  <compiler angle="radian" meshdir="../../meshes"/>
+
+  <option density="1.225" viscosity="1.81e-5"/>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 0">
+      <freejoint name="root"/>
+
+      <site name="imu_site" pos="0 0 0" size="0.005"/>
+
+      <inertial pos="0 0 0" mass="0.85"
+                diaginertia="0.09 0.22 0.26"/>
+
+      <!-- Fuselage: visual/collision box + ellipsoid fluid geom -->
+      <geom name="fuselage_visual" type="box" size="0.45 0.06 0.08"
+            rgba="0.55 0.55 0.6 1"/>
+      <geom name="fuselage_fluid" type="ellipsoid" size="0.50 0.07 0.09"
+            fluidshape="ellipsoid" fluidcoef="0.5 0.10 0.6 0.8 0.0"
+            contype="0" conaffinity="0"/>
+
+      <!-- Wing panels (fixed, part of base_link): ellipsoid fluid geoms -->
+      <geom name="wing_left_fluid" type="ellipsoid" pos="-0.05 0.4 0.02"
+            size="0.18 0.70 0.030"
+            fluidshape="ellipsoid" fluidcoef="0.8 0.3 0.3 3.0 0.0"
+            contype="0" conaffinity="0"/>
+      <geom name="wing_right_fluid" type="ellipsoid" pos="-0.05 -0.4 0.02"
+            size="0.18 0.70 0.030"
+            fluidshape="ellipsoid" fluidcoef="0.8 0.3 0.3 3.0 0.0"
+            contype="0" conaffinity="0"/>
+
+      <!-- Horizontal stabilizer + fin fluid geoms -->
+      <geom name="stab_fluid" type="ellipsoid" pos="-0.62 0 0.05"
+            size="0.10 0.32 0.022"
+            fluidshape="ellipsoid" fluidcoef="0.4 0.06 0.3 1.5 0.0"
+            contype="0" conaffinity="0"/>
+      <geom name="fin_fluid" type="ellipsoid" pos="-0.6 0 0.18"
+            size="0.05 0.02 0.12"
+            fluidshape="ellipsoid" fluidcoef="0.4 0.06 0.3 1.5 0.0"
+            contype="0" conaffinity="0"/>
+
+      <!-- Propeller: body + hinge; thrust via general actuator at site -->
+      <body name="prop" pos="0.42 0 0.0">
+        <joint name="prop_joint" type="hinge" axis="1 0 0"
+               damping="0.0001" frictionloss="0.001"/>
+        <inertial pos="0 0 0" mass="0.05"
+                  diaginertia="0.0002 0.0002 0.0001"/>
+        <site name="prop_site" pos="0 0 0" size="0.01"/>
+        <geom name="prop_visual" type="box" size="0.05 0.002 0.18"
+              rgba="0.2 0.2 0.2 0.8" contype="0" conaffinity="0"/>
+      </body>
+
+      <!-- Left aileron: hinge about -X so +ctrl = TE down (more lift) -->
+      <body name="aileron_left_body" pos="-0.05 0.38 0.02">
+        <joint name="aileron_left_joint" type="hinge" axis="-1 0 0"
+               limited="true" range="-0.5 0.5"/>
+        <inertial pos="0 0 0" mass="0.02"
+                  diaginertia="0.0001 0.0001 0.0001"/>
+        <geom name="aileron_left_geom" type="box" pos="-0.05 0.12 0"
+              size="0.02 0.15 0.012" rgba="0.4 0.4 0.5 1"/>
+        <geom name="aileron_left_fluid" type="ellipsoid" pos="-0.05 0.12 0"
+              size="0.03 0.15 0.015"
+              fluidshape="ellipsoid" fluidcoef="0.8 0.1 0.4 1.6 0.0"
+              contype="0" conaffinity="0"/>
+      </body>
+
+      <!-- Right aileron: hinge about +X, geom on -Y side, +ctrl = TE down -->
+      <body name="aileron_right_body" pos="-0.05 -0.38 0.02">
+        <joint name="aileron_right_joint" type="hinge" axis="1 0 0"
+               limited="true" range="-0.5 0.5"/>
+        <inertial pos="0 0 0" mass="0.02"
+                  diaginertia="0.0001 0.0001 0.0001"/>
+        <geom name="aileron_right_geom" type="box" pos="-0.05 -0.12 0"
+              size="0.02 0.15 0.012" rgba="0.4 0.4 0.5 1"/>
+        <geom name="aileron_right_fluid" type="ellipsoid" pos="-0.05 -0.12 0"
+              size="0.03 0.15 0.015"
+              fluidshape="ellipsoid" fluidcoef="0.8 0.1 0.4 1.6 0.0"
+              contype="0" conaffinity="0"/>
+      </body>
+
+      <!-- Elevator: hinge about +Y, +ctrl = TE up = nose up -->
+      <body name="elevator_body" pos="-0.6 0 0.05">
+        <joint name="elevator_joint" type="hinge" axis="0 -1 0"
+               limited="true" range="-0.5 0.5"/>
+        <inertial pos="0 0 0" mass="0.02"
+                  diaginertia="0.0001 0.0001 0.0001"/>
+        <geom name="elevator_geom" type="box" pos="-0.05 0 0"
+              size="0.02 0.2 0.012" rgba="0.4 0.4 0.5 1"/>
+        <geom name="elevator_fluid" type="ellipsoid" pos="-0.05 0 0"
+              size="0.03 0.2 0.015"
+              fluidshape="ellipsoid" fluidcoef="0.8 0.1 0.4 1.6 0.0"
+              contype="0" conaffinity="0"/>
+      </body>
+
+      <!-- Rudder: hinge about +Z (sign validated in flight) -->
+      <body name="rudder_body" pos="-0.6 0 0.18">
+        <joint name="rudder_joint" type="hinge" axis="0 0 1"
+               limited="true" range="-0.5 0.5"/>
+        <inertial pos="0 0 0" mass="0.015"
+                  diaginertia="0.0001 0.0001 0.0001"/>
+        <geom name="rudder_geom" type="box" pos="-0.03 0 0.06"
+              size="0.015 0.012 0.09" rgba="0.4 0.4 0.5 1"/>
+        <geom name="rudder_fluid" type="ellipsoid" pos="-0.03 0 0.06"
+              size="0.025 0.012 0.09"
+              fluidshape="ellipsoid" fluidcoef="0.8 0.1 0.4 1.6 0.0"
+              contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="throttle" site="prop_site"
+             gear="52 0 0" ctrlrange="0 1" ctrllimited="true"/>
+    <general name="aileron_left" joint="aileron_left_joint" gear="1.0"
+             ctrlrange="-0.5 0.5" ctrllimited="true"/>
+    <general name="aileron_right" joint="aileron_right_joint" gear="1.0"
+             ctrlrange="-0.5 0.5" ctrllimited="true"/>
+    <general name="elevator" joint="elevator_joint" gear="0.5"
+             ctrlrange="-0.5 0.5" ctrllimited="true"/>
+    <general name="rudder" joint="rudder_joint" gear="1.0"
+             ctrlrange="-0.5 0.5" ctrllimited="true"/>
+  </actuator>
+
+  <sensor>
+    <accelerometer name="imu_accel" site="imu_site"/>
+    <gyro          name="imu_gyro"  site="imu_site"/>
+    <framequat     name="orientation" objtype="site" objname="imu_site"/>
+    <framepos      name="position"   objtype="site" objname="imu_site"/>
+    <framexaxis    name="heading"    objtype="site" objname="imu_site"/>
+    <velocimeter   name="linvel"     site="imu_site"/>
+    <frameyaxis    name="mag_y"      objtype="site" objname="imu_site"/>
+    <framezaxis    name="mag_z"      objtype="site" objname="imu_site"/>
+  </sensor>
+
+</mujoco>
