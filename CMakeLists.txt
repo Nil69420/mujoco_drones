@@ -77,7 +77,7 @@ endif()
 
 add_executable(hummingbird ${SOURCES})
 
-target_compile_options(hummingbird PRIVATE
+set(COMMON_COMPILE_OPTIONS
     -Wall -Wextra -Wpedantic -Werror
     -Wshadow -Wdouble-promotion -Wformat=2
     $<$<C_COMPILER_ID:GNU>:-Wformat-overflow=2>
@@ -91,6 +91,8 @@ target_compile_options(hummingbird PRIVATE
     -Wstack-protector -Wvla
     -fstack-protector-strong
 )
+
+target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(hummingbird PRIVATE _FORTIFY_SOURCE=2)
@@ -127,6 +129,21 @@ if(ENABLE_IPC)
     target_link_libraries(hummingbird PRIVATE renoir)
     target_compile_definitions(hummingbird PRIVATE ENABLE_IPC)
 
+    add_executable(send_command src/tools/send_command.c)
+    target_sources(send_command PRIVATE src/transport/transport_renoir.c)
+    target_compile_options(send_command PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_include_directories(send_command PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${RENOIR_INCLUDE_DIR}
+    )
+    target_link_directories(send_command PRIVATE ${RENOIR_LIB_DIR})
+    target_link_libraries(send_command PRIVATE renoir)
+    target_compile_definitions(send_command PRIVATE ENABLE_IPC)
+
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_compile_definitions(send_command PRIVATE _FORTIFY_SOURCE=2)
+    endif()
+
     if(ENABLE_FOXGLOVE)
         target_link_libraries(hummingbird PRIVATE Threads::Threads)
         target_compile_definitions(hummingbird PRIVATE ENABLE_FOXGLOVE)
@@ -136,6 +153,10 @@ if(ENABLE_IPC)
     set_target_properties(hummingbird PROPERTIES
         BUILD_RPATH "${RENOIR_LIB_DIR};${MUJOCO_DIR}/lib"
         INSTALL_RPATH "${RENOIR_LIB_DIR};${MUJOCO_DIR}/lib"
+    )
+    set_target_properties(send_command PROPERTIES
+        BUILD_RPATH "${RENOIR_LIB_DIR}"
+        INSTALL_RPATH "${RENOIR_LIB_DIR}"
     )
 else()
     set_target_properties(hummingbird PROPERTIES
@@ -155,26 +176,37 @@ add_custom_command(TARGET hummingbird POST_BUILD
 )
 
 if(ENABLE_ASAN)
-    target_compile_options(hummingbird PRIVATE
+    set(COMMON_ASAN_COMPILE_OPTIONS
         -fsanitize=address,undefined
         -fno-omit-frame-pointer
         -fno-optimize-sibling-calls
         -fsanitize=float-divide-by-zero
         -fsanitize=float-cast-overflow
     )
-    target_link_options(hummingbird PRIVATE -fsanitize=address,undefined)
-    target_compile_definitions(hummingbird PRIVATE
+    set(COMMON_ASAN_LINK_OPTIONS -fsanitize=address,undefined)
+    set(COMMON_ASAN_DEFINITIONS
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
+    foreach(tgt hummingbird send_command)
+        if(TARGET ${tgt})
+            target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
+            target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
+            target_compile_definitions(${tgt} PRIVATE ${COMMON_ASAN_DEFINITIONS})
+        endif()
+    endforeach()
 endif()
 
 if(ENABLE_TSAN)
-    target_compile_options(hummingbird PRIVATE
-        -fsanitize=thread
-        -fno-omit-frame-pointer
-    )
-    target_link_options(hummingbird PRIVATE -fsanitize=thread)
+    foreach(tgt hummingbird send_command)
+        if(TARGET ${tgt})
+            target_compile_options(${tgt} PRIVATE
+                -fsanitize=thread
+                -fno-omit-frame-pointer
+            )
+            target_link_options(${tgt} PRIVATE -fsanitize=thread)
+        endif()
+    endforeach()
 endif()
 
 find_program(CLANG_TIDY clang-tidy)
@@ -183,6 +215,9 @@ if(CLANG_TIDY)
     foreach(src ${SOURCES})
         list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/${src}")
     endforeach()
+    if(ENABLE_IPC)
+        list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/src/tools/send_command.c")
+    endif()
 
     add_custom_target(lint
         COMMAND ${CLANG_TIDY}

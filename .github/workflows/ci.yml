@@ -19,12 +19,18 @@ jobs:
           - name: Release
             build_type: Release
             cmake_extra: ""
+            run_smoke: true
+            is_asan: false
           - name: ASan
             build_type: Debug
             cmake_extra: "-DENABLE_ASAN=ON"
+            run_smoke: true
+            is_asan: true
           - name: TSan
             build_type: Debug
             cmake_extra: "-DENABLE_TSAN=ON"
+            run_smoke: false
+            is_asan: false
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +95,20 @@ jobs:
 
       - name: Build
         run: cmake --build build -j$(nproc)
+
+      - name: Headless smoke run
+        if: matrix.run_smoke
+        env:
+          ASAN_OPTIONS: "detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1:halt_on_error=1"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+        run: |
+          if [[ "${{ matrix.is_asan }}" == "true" ]]; then
+            ASAN_LIB=$(cc -print-file-name=libasan.so 2>/dev/null || true)
+            if [[ "$ASAN_LIB" != "libasan.so" && -f "$ASAN_LIB" ]]; then
+              export LD_PRELOAD="$ASAN_LIB"
+            fi
+          fi
+          ./build/hummingbird --headless --duration 5
 
   lint:
     runs-on: ubuntu-latest

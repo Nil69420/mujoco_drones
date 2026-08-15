@@ -17,6 +17,7 @@ typedef struct {
     bool lidar;
     bool camera;
     bool infrared;
+    bool command;
 } sensor_enable_t;
 
 typedef struct {

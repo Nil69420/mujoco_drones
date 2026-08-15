@@ -140,6 +140,24 @@ Connect with [Foxglove Studio](https://foxglove.dev/):
 | `/drone/infrared` | `sensor_infrared_t` | Downward-facing range |
 | `/drone/camera/meta` | `sensor_camera_meta_t` | Camera resolution, FOV metadata |
 
+### Command uplink
+
+The simulator subscribes to `/drone/command` and applies received setpoints
+to the flight controller's target. It is consumed by the simulator, not
+published by it — the standalone `send_command` tool publishes a single
+setpoint over the Renoir transport:
+
+| Topic | Schema | Direction |
+|-------|--------|-----------|
+| `/drone/command` | `command_setpoint_t` (x/y/z/yaw as doubles, mode as uint8_t) | Published by `send_command`, consumed by the simulator |
+
+```bash
+./send_command --x 1.0 --y 0 --z 1.5 --yaw 0
+```
+
+`send_command` is built alongside `hummingbird` when IPC is enabled and
+lives in the build directory.
+
 ## Project Structure
 
 ```

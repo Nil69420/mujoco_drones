@@ -41,10 +41,6 @@ struct foxglove_bridge {
     int      cam_rgb_ch;
 };
 
-/* Max camera resolution used to size the heap buffers for the RGB channel.
- * Actual runtime dimensions come from sensor_camera_rgb_hdr_t. */
-enum { CAM_BUF_MAX_W = 1280, CAM_BUF_MAX_H = 720 };
-
 static const char SCHEMA_IMU[] =
     "{\"type\":\"object\",\"properties\":{"
     "\"timestamp_ns\":{\"type\":\"integer\"},"
@@ -477,13 +473,14 @@ void foxglove_destroy(foxglove_bridge_t *br) {
 
     if (br->listen_fd >= 0) {
         close(br->listen_fd);
-        br->listen_fd = -1;
     }
 
     if (br->thread_started) {
         pthread_join(br->thread, NULL);
         br->thread_started = false;
     }
+
+    br->listen_fd = -1;
 
     for (int i = 0; i < br->num_channels; i++) {
         transport_close_sub(&br->subs[i]);

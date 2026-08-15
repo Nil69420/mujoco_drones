@@ -12,6 +12,8 @@
 
 static const char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+enum { WS_MAX_FRAME_LEN = 8 * 1024 * 1024 };
+
 static int write_all(int fd, const void *buf, size_t len) {
     const uint8_t *ptr = buf;
     size_t remaining = len;
@@ -95,6 +97,10 @@ ssize_t ws_recv_frame(int fd, uint8_t *buf, size_t buf_sz, uint8_t *opcode) {
     uint8_t mask[4] = {0};
     if (masked) {
         if (recv_all(fd, mask, 4) != 4) return -1;
+    }
+
+    if (plen > (uint64_t)WS_MAX_FRAME_LEN) {
+        return -1;
     }
 
     if (plen > buf_sz) {

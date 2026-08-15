@@ -4,3 +4,6 @@ build-debug/
 build-lint/
 build-tsan/
 test_ws_client.py
+
+# Agent planning/log scratch space
+.ai/

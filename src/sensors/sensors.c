@@ -36,6 +36,7 @@ sensor_config_t sensor_default_config(void) {
     cfg.enable.lidar    = true;
     cfg.enable.camera   = true;
     cfg.enable.infrared = true;
+    cfg.enable.command  = true;
 
     cfg.imu_rate      = 1000.0;
     cfg.gnss_rate     = 10.0;
@@ -125,28 +126,49 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     mgr->dec_lidar = mgr->dec_camera = mgr->dec_infrared = 1;
 
     if (mgr->config.enable.imu) {
-        transport_advertise(tp, TOPIC_IMU,
-                            sizeof(sensor_imu_t), &mgr->pub_imu);
+        if (transport_advertise(tp, TOPIC_IMU,
+                                sizeof(sensor_imu_t), &mgr->pub_imu) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling IMU\n", TOPIC_IMU);
+            mgr->config.enable.imu = false;
+        }
     }
 
     if (mgr->config.enable.gnss) {
-        transport_advertise(tp, TOPIC_GNSS,
-                            sizeof(sensor_gnss_t), &mgr->pub_gnss);
+        if (transport_advertise(tp, TOPIC_GNSS,
+                                sizeof(sensor_gnss_t), &mgr->pub_gnss) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling GNSS\n", TOPIC_GNSS);
+            mgr->config.enable.gnss = false;
+        }
     }
 
     if (mgr->config.enable.baro) {
-        transport_advertise(tp, TOPIC_BARO,
-                            sizeof(sensor_baro_t), &mgr->pub_baro);
+        if (transport_advertise(tp, TOPIC_BARO,
+                                sizeof(sensor_baro_t), &mgr->pub_baro) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling barometer\n", TOPIC_BARO);
+            mgr->config.enable.baro = false;
+        }
     }
 
     if (mgr->config.enable.lidar) {
-        transport_advertise(tp, TOPIC_LIDAR,
-                            sizeof(sensor_lidar_t), &mgr->pub_lidar);
+        if (transport_advertise(tp, TOPIC_LIDAR,
+                                sizeof(sensor_lidar_t), &mgr->pub_lidar) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling LiDAR\n", TOPIC_LIDAR);
+            mgr->config.enable.lidar = false;
+        }
     }
 
     if (mgr->config.enable.infrared) {
-        transport_advertise(tp, TOPIC_INFRARED,
-                            sizeof(sensor_infrared_t), &mgr->pub_infrared);
+        if (transport_advertise(tp, TOPIC_INFRARED,
+                                sizeof(sensor_infrared_t),
+                                &mgr->pub_infrared) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling infrared\n", TOPIC_INFRARED);
+            mgr->config.enable.infrared = false;
+        }
     }
 
     if (mgr->config.enable.camera) {
@@ -156,33 +178,53 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
         size_t depth_sz = (size_t)config->camera_width *
                           config->camera_height * sizeof(float);
 
-        transport_advertise(tp, TOPIC_CAMERA_META,
-                            sizeof(sensor_camera_meta_t),
-                            &mgr->pub_camera_meta);
-        transport_advertise(tp, TOPIC_CAMERA_RGB,   rgb_total,
-                            &mgr->pub_camera_rgb);
-        transport_advertise(tp, TOPIC_CAMERA_DEPTH, depth_sz,
-                            &mgr->pub_camera_depth);
-
-        mgr->rgb_buf   = malloc(rgb_total);
-        mgr->depth_buf = malloc(depth_sz);
-        if (!mgr->rgb_buf || !mgr->depth_buf) {
-            fprintf(stderr, "[sensors] ERROR: failed to allocate camera "
-                            "buffers\n");
+        if (transport_advertise(tp, TOPIC_CAMERA_META,
+                                sizeof(sensor_camera_meta_t),
+                                &mgr->pub_camera_meta) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling camera\n", TOPIC_CAMERA_META);
             mgr->config.enable.camera = false;
+        } else if (transport_advertise(tp, TOPIC_CAMERA_RGB, rgb_total,
+                                       &mgr->pub_camera_rgb) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling camera\n", TOPIC_CAMERA_RGB);
+            mgr->config.enable.camera = false;
+        } else if (transport_advertise(tp, TOPIC_CAMERA_DEPTH, depth_sz,
+                                       &mgr->pub_camera_depth) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
+                            "disabling camera\n", TOPIC_CAMERA_DEPTH);
+            mgr->config.enable.camera = false;
+        }
+
+        if (mgr->config.enable.camera) {
+            mgr->rgb_buf   = malloc(rgb_total);
+            mgr->depth_buf = malloc(depth_sz);
+            if (!mgr->rgb_buf || !mgr->depth_buf) {
+                fprintf(stderr, "[sensors] ERROR: failed to allocate camera "
+                                "buffers\n");
+                mgr->config.enable.camera = false;
+            }
         }
     }
 
-    transport_subscribe(tp, TOPIC_COMMAND,
-                        sizeof(command_setpoint_t), &mgr->sub_command);
+    if (mgr->config.enable.command) {
+        if (transport_subscribe(tp, TOPIC_COMMAND,
+                                sizeof(command_setpoint_t),
+                                &mgr->sub_command) != 0) {
+            fprintf(stderr, "[sensors] ERROR: failed to subscribe to %s, "
+                            "command uplink disabled\n", TOPIC_COMMAND);
+            mgr->config.enable.command = false;
+        }
+    }
 
     noise_seed(&mgr->rng, 42);
 
     printf("[sensors] initialized: IMU=%d GNSS=%d Baro=%d LiDAR=%d "
-           "Camera=%d IR=%d\n",
+           "Camera=%d IR=%d Command=%d\n",
            mgr->config.enable.imu,    mgr->config.enable.gnss,
            mgr->config.enable.baro,   mgr->config.enable.lidar,
-           mgr->config.enable.camera, mgr->config.enable.infrared);
+           mgr->config.enable.camera, mgr->config.enable.infrared,
+           mgr->config.enable.command);
     return 0;
 }
 
@@ -390,15 +432,17 @@ void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
         mgr->cam_due = true;
     }
 
-    command_setpoint_t cmd;
-    size_t cmd_len = 0;
-    int rc = transport_read_next(&mgr->sub_command, &cmd, sizeof(cmd),
-                                 &cmd_len);
-    if (rc == 0 && cmd_len == sizeof(cmd)) {
-        target->x   = cmd.x;
-        target->y   = cmd.y;
-        target->z   = cmd.z;
-        target->yaw = cmd.yaw;
+    if (mgr->config.enable.command) {
+        command_setpoint_t cmd;
+        size_t cmd_len = 0;
+        int rc = transport_read_next(&mgr->sub_command, &cmd, sizeof(cmd),
+                                     &cmd_len);
+        if (rc == 0 && cmd_len == sizeof(cmd)) {
+            target->x   = cmd.x;
+            target->y   = cmd.y;
+            target->z   = cmd.z;
+            target->yaw = cmd.yaw;
+        }
     }
 }
 

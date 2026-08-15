@@ -107,6 +107,29 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
     return 0;
 }
 
+#ifdef ENABLE_FOXGLOVE
+static void apply_camera_cap(int cam_w, int cam_h, sensor_config_t *scfg) {
+    if (cam_w < 1) cam_w = 1;
+    if (cam_h < 1) cam_h = 1;
+    bool clamped = false;
+    if (cam_w > CAM_BUF_MAX_W) {
+        cam_w = CAM_BUF_MAX_W;
+        clamped = true;
+    }
+    if (cam_h > CAM_BUF_MAX_H) {
+        cam_h = CAM_BUF_MAX_H;
+        clamped = true;
+    }
+    if (clamped) {
+        fprintf(stderr, "[main] WARNING: camera resolution reduced to %dx%d "
+                        "(Foxglove bridge cap)\n",
+                cam_w, cam_h);
+    }
+    scfg->camera_width  = (uint16_t)cam_w;
+    scfg->camera_height = (uint16_t)cam_h;
+}
+#endif
+
 static int run_headless(sim_t *sim, double duration) {
     printf("Running headless for %.1f seconds...\n", duration);
     printf("Target: altitude=%.1f m, position=(%.1f, %.1f)\n\n",
@@ -190,8 +213,13 @@ int main(int argc, char **argv) {
         } else {
             sensor_config_t scfg = sensor_default_config();
             scfg.lidar_num_rays = (uint16_t)args.lidar_rays;
-            scfg.camera_width   = (uint16_t)args.cam_w;
-            scfg.camera_height  = (uint16_t)args.cam_h;
+
+#ifdef ENABLE_FOXGLOVE
+            apply_camera_cap(args.cam_w, args.cam_h, &scfg);
+#else
+            scfg.camera_width  = (uint16_t)args.cam_w;
+            scfg.camera_height = (uint16_t)args.cam_h;
+#endif
             scfg.camera_rate    = args.cam_fps;
 
             if (args.headless) {
