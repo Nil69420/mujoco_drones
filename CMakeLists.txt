@@ -130,11 +130,15 @@ add_library(mdmodels STATIC
     src/sensors/models/mag_profiles.c
     src/sensors/models/range_model.c
     src/sensors/models/range_profiles.c
+    src/sensors/models/camera_model.c
+    src/sensors/models/camera_profiles.c
     src/foxglove/ws_proto.c
     src/foxglove/ops.c
     src/foxglove/sha1.c
     src/foxglove/base64.c
 )
+set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
+    COMPILE_OPTIONS "-O3;-fno-math-errno;-ffinite-math-only;-fno-signed-zeros")
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(mdmodels PUBLIC m)
@@ -175,6 +179,12 @@ target_include_directories(test_fg_ops PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_fg_ops PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_fg_ops PRIVATE mdmodels)
 add_test(NAME fg_ops COMMAND test_fg_ops)
+
+add_executable(test_camera_model tests/test_camera_model.c)
+target_include_directories(test_camera_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_camera_model PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_camera_model PRIVATE mdmodels)
+add_test(NAME camera_model COMMAND test_camera_model)
 
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
@@ -305,7 +315,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -315,7 +325,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread

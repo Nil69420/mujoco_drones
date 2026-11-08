@@ -98,10 +98,19 @@ sensor_config_t sensor_default_config(void) {
     return cfg;
 }
 
-static int rate_to_interval(double rate_hz, double timestep) {
-    if (rate_hz <= 0.0) return 0;
-    int n = (int)(1.0 / (rate_hz * timestep));
-    return n < 1 ? 1 : n;
+static int tick_due(double *acc, double rate_hz, double timestep) {
+    if (rate_hz <= 0.0) {
+        return 0;
+    }
+    *acc += rate_hz * timestep;
+    if (*acc >= 1.0 - 1e-9) {
+        *acc -= 1.0;
+        if (*acc > 1.0) {
+            *acc = 0.0;
+        }
+        return 1;
+    }
+    return 0;
 }
 
 int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
@@ -122,7 +131,6 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     build_topic(topic_camera_rgb, sizeof(topic_camera_rgb), topic_prefix, "/camera/rgb");
     build_topic(topic_command,    sizeof(topic_command),    topic_prefix, "/command");
 
-    double dt = model->opt.timestep;
 
     mgr->adr_accel   = resolve_sensor_adr(model, topic_prefix, "imu_accel");
     mgr->adr_gyro    = resolve_sensor_adr(model, topic_prefix, "imu_gyro");
@@ -172,15 +180,9 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
         mgr->config.enable.camera = false;
     }
 
-    mgr->inv_imu      = rate_to_interval(config->imu_rate,      dt);
-    mgr->inv_gnss     = rate_to_interval(config->gnss_rate,     dt);
-    mgr->inv_baro     = rate_to_interval(config->baro_rate,     dt);
-    mgr->inv_lidar    = rate_to_interval(config->lidar_rate,    dt);
-    mgr->inv_camera   = rate_to_interval(config->camera_rate,   dt);
-    mgr->inv_infrared = rate_to_interval(config->infrared_rate, dt);
 
-    mgr->dec_imu = mgr->dec_gnss = mgr->dec_baro = 1;
-    mgr->dec_lidar = mgr->dec_camera = mgr->dec_infrared = 1;
+    mgr->acc_imu = mgr->acc_gnss = mgr->acc_baro = 1.0;
+    mgr->acc_lidar = mgr->acc_camera = mgr->acc_infrared = 1.0;
 
     if (mgr->config.enable.imu) {
         if (transport_advertise(tp, topic_imu,
@@ -625,38 +627,33 @@ void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
     update_conditions(mgr, data);
 
-    if (mgr->config.enable.imu && mgr->inv_imu > 0 && --mgr->dec_imu <= 0) {
-        mgr->dec_imu = mgr->inv_imu;
+    if (mgr->config.enable.imu && tick_due(&mgr->acc_imu, mgr->config.imu_rate, mgr->sim_dt)) {
         read_imu(mgr, data, t_ns);
     }
 
     if (mgr->config.enable.gnss && mgr->use_gnss_model) {
         step_gnss_model(mgr, data, t_ns);
-    } else if (mgr->config.enable.gnss && mgr->inv_gnss > 0 && --mgr->dec_gnss <= 0) {
-        mgr->dec_gnss = mgr->inv_gnss;
+    } else if (mgr->config.enable.gnss &&
+               tick_due(&mgr->acc_gnss, mgr->config.gnss_rate, mgr->sim_dt)) {
         read_gnss(mgr, data, t_ns);
     }
 
-    if (mgr->config.enable.baro && mgr->inv_baro > 0 && --mgr->dec_baro <= 0) {
-        mgr->dec_baro = mgr->inv_baro;
+    if (mgr->config.enable.baro && tick_due(&mgr->acc_baro, mgr->config.baro_rate, mgr->sim_dt)) {
         read_baro(mgr, data, t_ns);
     }
 
-    if (mgr->config.enable.lidar && mgr->inv_lidar > 0 &&
-        --mgr->dec_lidar <= 0) {
-        mgr->dec_lidar = mgr->inv_lidar;
+    if (mgr->config.enable.lidar &&
+        tick_due(&mgr->acc_lidar, mgr->config.lidar_rate, mgr->sim_dt)) {
         read_lidar(mgr, model, data, t_ns);
     }
 
-    if (mgr->config.enable.infrared && mgr->inv_infrared > 0 &&
-        --mgr->dec_infrared <= 0) {
-        mgr->dec_infrared = mgr->inv_infrared;
+    if (mgr->config.enable.infrared &&
+        tick_due(&mgr->acc_infrared, mgr->config.infrared_rate, mgr->sim_dt)) {
         read_infrared(mgr, model, data, t_ns);
     }
 
-    if (mgr->config.enable.camera && mgr->inv_camera > 0 &&
-        --mgr->dec_camera <= 0) {
-        mgr->dec_camera = mgr->inv_camera;
+    if (mgr->config.enable.camera &&
+        tick_due(&mgr->acc_camera, mgr->config.camera_rate, mgr->sim_dt)) {
         mgr->cam_due = true;
     }
 

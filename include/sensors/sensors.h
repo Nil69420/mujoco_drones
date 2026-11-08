@@ -87,11 +87,9 @@ typedef struct {
     int body_base;
     int camera_id;
 
-    int dec_imu,    dec_gnss,   dec_baro;
-    int dec_lidar,  dec_camera, dec_infrared;
+    double acc_imu, acc_gnss, acc_baro;
+    double acc_lidar, acc_camera, acc_infrared;
 
-    int inv_imu,    inv_gnss,   inv_baro;
-    int inv_lidar,  inv_camera, inv_infrared;
 
     uint32_t seq_imu, seq_gnss, seq_baro;
     uint32_t seq_lidar, seq_camera, seq_infrared;
