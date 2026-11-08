@@ -40,7 +40,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake \
-            libglfw3-dev libgl-dev \
+            libglfw3-dev libgl-dev libegl-dev \
             clang-tidy
 
       - name: Cache MuJoCo
@@ -96,6 +96,19 @@ jobs:
       - name: Build
         run: cmake --build build -j$(nproc)
 
+      - name: Tests
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          LSAN_OPTIONS: "suppressions=${{ github.workspace }}/tests/lsan.supp"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+        run: |
+          cd build
+          if [[ "${{ matrix.name }}" == "TSan" ]]; then
+            ctest --output-on-failure -E "live|importer_golden"
+          else
+            ctest --output-on-failure
+          fi
+
       - name: Headless smoke run
         if: matrix.run_smoke
         env:
@@ -121,7 +134,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake \
-            libglfw3-dev libgl-dev \
+            libglfw3-dev libgl-dev libegl-dev \
             clang-tidy
 
       - name: Cache MuJoCo
@@ -175,3 +188,83 @@ jobs:
 
       - name: Run clang-tidy
         run: cmake --build build --target lint
+
+  fuzz:
+    runs-on: ubuntu-latest
+    name: Fuzz (WebSocket parser)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Build and run the fuzzer
+        run: |
+          cd fuzz
+          clang -std=c11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_ws_proto.c ../src/foxglove/ws_proto.c ../src/foxglove/ops.c \
+            ../src/foxglove/sha1.c ../src/foxglove/base64.c -o fuzz_ws_proto
+          mkdir -p corpus
+          ./fuzz_ws_proto -max_total_time=60 -timeout=5 corpus
+
+  foxglove-adversarial:
+    runs-on: ubuntu-latest
+    name: Foxglove adversarial suite
+    env:
+      MUJOCO_VERSION: "3.5.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libglfw3-dev libgl-dev libegl-dev python3-venv
+
+      - name: Cache MuJoCo
+        id: cache-mujoco
+        uses: actions/cache@v4
+        with:
+          path: ~/.mujoco/mujoco
+          key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
+
+      - name: Install MuJoCo
+        if: steps.cache-mujoco.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.mujoco
+          curl -fsSL \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
+            | tar xz -C ~/.mujoco
+          mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone renoir
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/renoir
+          path: renoir
+
+      - name: Build renoir
+        run: |
+          cd renoir
+          cargo build --release --features c-api
+
+      - name: Build the simulator with ASan and the Foxglove bridge
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_IPC=ON -DENABLE_FOXGLOVE=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir
+          cmake --build . -j$(nproc) --target hummingbird
+
+      - name: Run the adversarial suite
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1"
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install websockets
+          export RENOIR_SHM_DIR=$(mktemp -d)
+          export SIM_LD_PRELOAD=$(cc -print-file-name=libasan.so)
+          /tmp/venv/bin/python tests/foxglove_adversarial.py build/hummingbird
