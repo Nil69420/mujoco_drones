@@ -60,7 +60,9 @@ if(ENABLE_IPC)
 
     list(APPEND SOURCES
         src/sensors/sensors.c
+        src/sensors/camera_egl.c
         src/transport/transport_renoir.c
+        src/transport/frame_out.c
     )
 
     if(ENABLE_FOXGLOVE)
@@ -207,6 +209,17 @@ target_link_libraries(hummingbird PRIVATE
     m
 )
 
+find_library(EGL_LIBRARY EGL)
+find_path(EGL_INCLUDE_DIR EGL/egl.h)
+if(EGL_LIBRARY AND EGL_INCLUDE_DIR)
+    target_link_libraries(hummingbird PRIVATE ${EGL_LIBRARY})
+    target_include_directories(hummingbird PRIVATE ${EGL_INCLUDE_DIR})
+    target_compile_definitions(hummingbird PRIVATE HAVE_EGL)
+    message(STATUS "EGL found -> headless camera enabled")
+else()
+    message(STATUS "EGL not found -> headless camera disabled")
+endif()
+
 if(glfw3_FOUND AND OpenGL_FOUND)
     target_link_libraries(hummingbird PRIVATE
         glfw
@@ -235,7 +248,7 @@ if(ENABLE_IPC)
     target_link_libraries(send_command PRIVATE renoir)
 
     add_executable(sensor_tap src/tools/sensor_tap.c)
-    target_sources(sensor_tap PRIVATE src/transport/transport_renoir.c)
+    target_sources(sensor_tap PRIVATE src/transport/transport_renoir.c src/transport/frame_out.c)
     target_compile_options(sensor_tap PRIVATE ${COMMON_COMPILE_OPTIONS})
     target_include_directories(sensor_tap PRIVATE
         ${CMAKE_SOURCE_DIR}/include

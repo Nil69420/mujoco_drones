@@ -42,6 +42,7 @@ static int resolve_site_id(const mjModel *m, const char *prefix,
     return mj_name2id(m, mjOBJ_SITE, full);
 }
 
+#define CAMERA_RING_SLOTS 4U
 #define SENSOR_ROTOR_RATED_RPM 8000.0
 #define SENSOR_VIBRATION_BASE_MS2 0.6
 #define SENSOR_MOUNT_HZ 45.0
@@ -89,6 +90,7 @@ sensor_config_t sensor_default_config(void) {
     cfg.mag_field_enu_ut[0]    = 0.9;
     cfg.mag_field_enu_ut[1]    = 21.4;
     cfg.mag_field_enu_ut[2]    = -42.3;
+    cfg.camera_exposure_s      = 0.004;
     cfg.mag_rate               = 100.0;
     cfg.sky_visibility         = 1.0;
     cfg.multipath_scale        = 1.0;
@@ -230,6 +232,31 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
         }
     }
 
+    if (mgr->config.enable.camera && config->camera_headless) {
+        if (camera_egl_open(&mgr->egl) != 0) {
+            fprintf(stderr, "[sensors] ERROR: headless camera unavailable, disabling camera\n");
+            mgr->config.enable.camera = false;
+        }
+    }
+    if (mgr->config.enable.camera && config->camera_mono) {
+        const camera_profile_t *cp = camera_profile_find(config->camera_profile != NULL
+                                                             ? config->camera_profile
+                                                             : "ar0234");
+        if (cp == NULL || camera_model_init(&mgr->cam_model, cp, config->camera_width,
+                                            config->camera_height, 1006) != 0) {
+            fprintf(stderr, "[sensors] ERROR: camera profile '%s' unusable at %ux%u\n",
+                    config->camera_profile != NULL ? config->camera_profile : "ar0234",
+                    (unsigned)config->camera_width, (unsigned)config->camera_height);
+            return -1;
+        }
+        if (config->camera_rate > cp->max_fps + 1e-9) {
+            fprintf(stderr, "[sensors] ERROR: camera rate %.0f fps exceeds the %s limit of %.0f\n",
+                    config->camera_rate, cp->name, cp->max_fps);
+            camera_model_free(&mgr->cam_model);
+            return -1;
+        }
+        mgr->use_cam_model = true;
+    }
     if (mgr->config.enable.camera) {
         size_t rgb_sz   = (size_t)config->camera_width *
                           config->camera_height * 3;
@@ -254,8 +281,16 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
 
         if (mgr->config.enable.camera) {
             mgr->rgb_buf   = malloc(rgb_total);
-            mgr->depth_buf = malloc(depth_sz);
-            if (!mgr->rgb_buf || !mgr->depth_buf) {
+            mgr->depth_buf = mgr->use_cam_model ? NULL : malloc(depth_sz);
+            char ring_name[96];
+            frame_out_name(ring_name, sizeof(ring_name), topic_prefix, "_camera_frame");
+            size_t ring_frame = sizeof(sensor_camera_rgb_hdr_t) +
+                                (size_t)config->camera_width * config->camera_height *
+                                    (mgr->use_cam_model ? 1U : 3U);
+            if (frame_out_open(&mgr->cam_out, ring_name, ring_frame, CAMERA_RING_SLOTS) == 0) {
+                mgr->cam_out_open = true;
+            }
+            if (!mgr->rgb_buf || (!mgr->depth_buf && !mgr->use_cam_model) || !mgr->cam_out_open) {
                 fprintf(stderr, "[sensors] ERROR: failed to allocate camera "
                                 "buffers\n");
                 mgr->config.enable.camera = false;
@@ -684,6 +719,13 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     if (!mgr->cam_initialized) {
         mjv_defaultScene(&mgr->cam_scene);
         mjv_makeScene(model, &mgr->cam_scene, 1000);
+        mjModel *writable = (mjModel *)model;
+        if (writable->vis.global.offwidth < w) {
+            writable->vis.global.offwidth = w;
+        }
+        if (writable->vis.global.offheight < h) {
+            writable->vis.global.offheight = h;
+        }
         mjr_defaultContext(&mgr->cam_context);
         mgr->cam_context.offWidth  = w;
         mgr->cam_context.offHeight = h;
@@ -706,6 +748,41 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
 
     uint8_t *pixels = mgr->rgb_buf + sizeof(sensor_camera_rgb_hdr_t);
     mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
+
+    if (mgr->use_cam_model) {
+        uint64_t t_mono = (uint64_t)(data->time * 1e9);
+        size_t mono_sz = (size_t)(unsigned)w * (unsigned)h;
+        uint8_t *frame = frame_out_loan(&mgr->cam_out, sizeof(sensor_camera_rgb_hdr_t) + mono_sz);
+        if (frame == NULL) {
+            return;
+        }
+        uint8_t *mono = frame + sizeof(sensor_camera_rgb_hdr_t);
+        camera_model_apply(&mgr->cam_model, pixels, mono, mgr->sensor_temp_c,
+                           mgr->config.ambient_temp_c, mgr->config.camera_exposure_s);
+        sensor_camera_rgb_hdr_t *mh = (sensor_camera_rgb_hdr_t *)frame;
+        memset(mh, 0, sizeof(*mh));
+        mh->header.timestamp_ns = t_mono;
+        mh->header.sequence     = mgr->seq_camera;
+        mh->header.sensor_id    = SENSOR_ID_CAMERA;
+        mh->width    = (uint16_t)w;
+        mh->height   = (uint16_t)h;
+        mh->channels = 1;
+        sensor_camera_meta_t mm = {0};
+        mm.header.timestamp_ns = t_mono;
+        mm.header.sequence     = mgr->seq_camera++;
+        mm.header.sensor_id    = SENSOR_ID_CAMERA;
+        mm.width    = (uint16_t)w;
+        mm.height   = (uint16_t)h;
+        mm.channels = 1;
+        mm.fov_y    = mgr->config.camera_fov;
+        mm.rgb_size = (uint32_t)mono_sz;
+        transport_publish(&mgr->pub_camera_meta, &mm, sizeof(mm));
+        if (mgr->config.camera_legacy_topic) {
+            transport_publish(&mgr->pub_camera_rgb, frame, sizeof(sensor_camera_rgb_hdr_t) + mono_sz);
+        }
+        (void)frame_out_commit(&mgr->cam_out);
+        return;
+    }
 
     size_t row_bytes = (size_t)(unsigned)w * 3U;
     uint8_t *temp_row = malloc(row_bytes);
@@ -748,8 +825,15 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     meta.depth_scale = 1.0F;
 
     transport_publish(&mgr->pub_camera_meta, &meta, sizeof(meta));
-    transport_publish(&mgr->pub_camera_rgb,  mgr->rgb_buf,
-                      sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
+    if (mgr->config.camera_legacy_topic) {
+        transport_publish(&mgr->pub_camera_rgb, mgr->rgb_buf,
+                          sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
+    }
+    uint8_t *frame = frame_out_loan(&mgr->cam_out, sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
+    if (frame != NULL) {
+        memcpy(frame, mgr->rgb_buf, sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
+        (void)frame_out_commit(&mgr->cam_out);
+    }
 }
 
 void sensor_cleanup(sensor_mgr_t *mgr) {
@@ -768,6 +852,9 @@ void sensor_cleanup(sensor_mgr_t *mgr) {
         mjr_freeContext(&mgr->cam_context);
         mgr->cam_initialized = false;
     }
+    camera_egl_close(&mgr->egl);
+    camera_model_free(&mgr->cam_model);
+    frame_out_close(&mgr->cam_out);
     free(mgr->rgb_buf);
     free(mgr->depth_buf);
     mgr->rgb_buf   = NULL;

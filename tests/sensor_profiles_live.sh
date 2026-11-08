@@ -42,4 +42,18 @@ echo "accel0 std calm=$CALM_STD vibrating=$SHAKY_STD"
 awk -v a="$CALM_STD" -v b="$SHAKY_STD" 'BEGIN { exit !(b > 2 * a) }' || fail "vibration did not raise the accelerometer noise"
 MAGZ=$(echo "$CALM" | awk '/mag2 mean/ {print $3}')
 awk -v z="$MAGZ" 'BEGIN { exit !(z < -35 && z > -50) }' || fail "magnetometer vertical component $MAGZ outside the expected Earth field"
+"$BIN_DIR/hummingbird" --headless --duration 20 --cam-width 1280 --cam-height 720 --cam-fps 120 \
+    --cam-profile ar0234 >/dev/null 2>&1 &
+SIM=$!
+sleep 1.5
+CAM=$("$BIN_DIR/sensor_tap" /drone 2 "$BIN_DIR/test_frame.pgm")
+kill $SIM 2>/dev/null || true
+wait $SIM 2>/dev/null || true
+echo "$CAM" | grep "camera:"
+echo "$CAM" | grep -q "1280x720 x1" || fail "camera frames are not 1280x720 mono8"
+echo "$CAM" | grep -q "simulated-time rate 120.0 fps" || fail "camera is not running at 120 fps"
+CAM_MEAN=$(echo "$CAM" | sed -n 's/.*mean level \([0-9.]*\).*/\1/p')
+awk -v m="$CAM_MEAN" 'BEGIN { exit !(m > 5 && m < 250) }' || fail "camera image is blank or saturated (mean $CAM_MEAN)"
+[ "$(wc -c < "$BIN_DIR/test_frame.pgm")" -gt 921600 ] || fail "frame dump has the wrong size"
+rm -f "$BIN_DIR/test_frame.pgm"
 echo "PASS"

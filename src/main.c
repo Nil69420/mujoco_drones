@@ -36,6 +36,8 @@ static void print_usage(const char *prog) {
     printf("  --mag NAME       Magnetometer profile; --mag-rate HZ (default 100)\n");
     printf("  --weather NAME   Weather preset (ambient temperature and pressure)\n");
     printf("  --vibration S    Motor vibration scale (0 = off, 1 = nominal)\n");
+    printf("  --cam-mono        Publish a mono8 image through the camera sensor model\n");
+    printf("  --cam-profile N  Camera sensor profile (ar0234, ov9281, ideal); implies --cam-mono\n");
     printf("  --list-sensors   List available sensor profiles and exit\n");
 #endif
     printf("  -h, --help       Show this help\n\n");
@@ -81,6 +83,8 @@ typedef struct {
     const char *gnss_name;
     const char *baro_name;
     const char *mag_name;
+    const char *cam_profile;
+    bool        cam_mono;
     double      mag_rate;
     const char *weather;
     double      vibration;
@@ -106,6 +110,9 @@ static void list_sensor_profiles(void) {
     printf("Weather (--weather):\n");
     for (size_t i = 0; i < CONDITIONS_PRESET_COUNT; i++)
         printf("  %-14s %5.1f C, wind %.1f m/s\n", CONDITIONS_PRESETS[i].name, CONDITIONS_PRESETS[i].ambient_temp_c, CONDITIONS_PRESETS[i].wind_speed_20ft_ms);
+    printf("Camera (--cam-profile):\n");
+    for (size_t i = 0; i < CAMERA_PROFILE_COUNT; i++)
+        printf("  %-12s %-12s max %ux%u, %.0f fps\n", CAMERA_PROFILES[i].name, CAMERA_PROFILES[i].grade, (unsigned)CAMERA_PROFILES[i].max_width, (unsigned)CAMERA_PROFILES[i].max_height, CAMERA_PROFILES[i].max_fps);
     printf("Barometer (--baro):\n");
     for (size_t i = 0; i < BARO_PROFILE_COUNT; i++)
         printf("  %-12s %-12s max %.0f Hz\n", BARO_PROFILES[i].name, BARO_PROFILES[i].grade, BARO_PROFILES[i].max_rate_hz);
@@ -146,6 +153,8 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
         else if (!strcmp(argv[i], "--baro")       && i+1 < argc) { args->baro_name = argv[++i]; }
         else if (!strcmp(argv[i], "--mag")        && i+1 < argc) { args->mag_name = argv[++i]; }
         else if (!strcmp(argv[i], "--mag-rate")   && i+1 < argc) { args->mag_rate = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--cam-profile") && i+1 < argc) { args->cam_profile = argv[++i]; args->cam_mono = true; }
+        else if (!strcmp(argv[i], "--cam-mono")) { args->cam_mono = true; }
         else if (!strcmp(argv[i], "--weather")    && i+1 < argc) { args->weather = argv[++i]; }
         else if (!strcmp(argv[i], "--vibration")  && i+1 < argc) { args->vibration = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--imu-rate")   && i+1 < argc) { args->imu_rate = strtod(argv[++i], NULL); }
@@ -204,6 +213,7 @@ static int run_headless(sim_t *sim, double duration) {
 #ifdef ENABLE_IPC
         if (sim->ipc_enabled) {
             sensor_update(&sim->sensors, sim->model, sim->data, &sim->target);
+            sensor_render_camera(&sim->sensors, sim->model, sim->data);
         }
 #endif
         if (++step % print_every == 0) {
@@ -303,7 +313,13 @@ int main(int argc, char **argv) {
             scfg.gnss_rate      = args.gnss_rate;
             scfg.baro_rate      = args.baro_rate;
 
-            if (args.headless) {
+            scfg.camera_profile = args.cam_profile;
+            scfg.camera_mono    = args.cam_mono;
+            scfg.camera_headless = args.headless;
+#ifdef ENABLE_FOXGLOVE
+            scfg.camera_legacy_topic = true;
+#endif
+            if (args.headless && !args.cam_mono) {
                 scfg.enable.camera = false;
             }
 #ifndef ENABLE_FOXGLOVE
@@ -318,7 +334,8 @@ int main(int argc, char **argv) {
                             &sim.transport, &scfg, NULL) != 0) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
                 if (args.imu_name != NULL || args.gnss_name != NULL || args.baro_name != NULL ||
-                    args.mag_name != NULL || args.weather != NULL || args.vibration > 0.0) {
+                    args.mag_name != NULL || args.weather != NULL || args.vibration > 0.0 ||
+                    args.cam_mono) {
                     transport_shutdown(&sim.transport);
                     mj_deleteData(sim.data);
                     mj_deleteModel(sim.model);

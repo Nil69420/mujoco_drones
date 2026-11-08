@@ -12,7 +12,10 @@
 #include "sensors/models/imu_model.h"
 #include "sensors/models/mag_model.h"
 #include "conditions/conditions.h"
+#include "sensors/camera_egl.h"
+#include "sensors/models/camera_model.h"
 #include "transport/transport.h"
+#include "transport/frame_out.h"
 #include "setpoint.h"
 
 typedef struct {
@@ -60,6 +63,11 @@ typedef struct {
     const char *mag_profile;
     double mag_rate;
     const char *weather;
+    const char *camera_profile;
+    bool camera_mono;
+    bool camera_headless;
+    bool camera_legacy_topic;
+    double camera_exposure_s;
     double vibration_scale;
     double mag_field_enu_ut[3];
     double sky_visibility;
@@ -111,6 +119,11 @@ typedef struct {
     bool       cam_initialized;
     bool       cam_due;
 
+    camera_egl_t   egl;
+    camera_model_t cam_model;
+    bool           use_cam_model;
+    frame_out_t    cam_out;
+    bool           cam_out_open;
     unsigned char *rgb_buf;
     float         *depth_buf;
 
