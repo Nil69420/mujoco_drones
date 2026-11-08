@@ -1,3 +1,4 @@
+#include "cli.h"
 #include "types.h"
 #include "controller.h"
 #include "viewer.h"
@@ -15,43 +16,6 @@
 #endif
 #endif
 
-static void print_usage(const char *prog) {
-    printf("Usage: %s [OPTIONS]\n\n", prog);
-    printf("Hummingbird quadrotor simulation (MuJoCo)\n\n");
-    printf("Options:\n");
-    printf("  --headless       Run without visualization\n");
-    printf("  --duration SEC   Sim duration in seconds (headless, default 10)\n");
-    printf("  --altitude M     Initial target altitude (default 1.0)\n");
-    printf("  --model PATH     Path to MJCF model file\n");
-#ifdef ENABLE_IPC
-    printf("  --no-ipc         Disable IPC transport\n");
-    printf("  --lidar-rays N   Number of LiDAR rays (default 36)\n");
-    printf("  --cam-width W    Camera width in pixels (default 640)\n");
-    printf("  --cam-height H   Camera height in pixels (default 360)\n");
-    printf("  --cam-fps F      Camera FPS (default 8.0)\n");
-    printf("  --scenario FILE  Run a composable multi-vehicle scenario\n");
-    printf("  --imu NAME       IMU profile (see --list-sensors); --imu-rate HZ (default 1000)\n");
-    printf("  --gnss NAME      GNSS profile; --gnss-rate HZ (default 10); --gnss-cold starts without a fix; --gnss-rtk enables RTK corrections\n");
-    printf("  --baro NAME      Barometer profile; --baro-rate HZ (default 50)\n");
-    printf("  --rangefinder N  Downward rangefinder profile; --rangefinder-rate HZ (default 100)\n");
-    printf("  --mag NAME       Magnetometer profile; --mag-rate HZ (default min(100, profile max))\n");
-    printf("  --weather NAME   Weather preset (ambient temperature and pressure)\n");
-    printf("  --vibration S    Motor vibration scale (0 = off, 1 = nominal)\n");
-    printf("  --cam-mono        Publish a mono8 image through the camera sensor model\n");
-    printf("  --cam-profile N  Camera sensor profile (ar0234, ov9281, ideal); implies --cam-mono\n");
-    printf("  --list-sensors   List available sensor profiles and exit\n");
-#endif
-    printf("  -h, --help       Show this help\n\n");
-    printf("Interactive controls:\n");
-    printf("  W/A/S/D          Move target XY\n");
-    printf("  Up/Down          Raise/lower altitude\n");
-    printf("  Left/Right       Yaw target\n");
-    printf("  R                Reset target\n");
-    printf("  Backspace        Reset simulation\n");
-    printf("  Q / Escape       Quit\n");
-    printf("  Mouse            Camera control\n");
-}
-
 static const char *find_model(void) {
     static const char *candidates[] = {
         "model/scene.xml",
@@ -66,126 +30,6 @@ static const char *find_model(void) {
         if (f) { fclose(f); return candidates[i]; }
     }
     return NULL;
-}
-
-typedef struct {
-    bool        headless;
-    bool        duration_set;
-    double      duration;
-    double      altitude;
-    const char *model_path;
-#ifdef ENABLE_IPC
-    bool        no_ipc;
-    int         lidar_rays;
-    int         cam_w;
-    int         cam_h;
-    double      cam_fps;
-    const char *imu_name;
-    const char *gnss_name;
-    const char *baro_name;
-    const char *mag_name;
-    const char *range_name;
-    double      ir_rate;
-    const char *cam_profile;
-    bool        cam_mono;
-    double      mag_rate;
-    bool        gnss_cold;
-    bool        gnss_rtk;
-    const char *weather;
-    double      vibration;
-    double      imu_rate;
-    double      gnss_rate;
-    double      baro_rate;
-    bool        list_sensors;
-    const char *scenario_path;
-#endif
-} cli_args_t;
-
-#ifdef ENABLE_IPC
-static void list_sensor_profiles(void) {
-    printf("IMU (--imu):\n");
-    for (size_t i = 0; i < IMU_PROFILE_COUNT; i++)
-        printf("  %-12s %-12s max %.0f Hz\n", IMU_PROFILES[i].name, IMU_PROFILES[i].grade, IMU_PROFILES[i].max_odr_hz);
-    printf("GNSS (--gnss):\n");
-    for (size_t i = 0; i < GNSS_PROFILE_COUNT; i++)
-        printf("  %-12s %-12s max %.0f Hz\n", GNSS_PROFILES[i].name, GNSS_PROFILES[i].grade, GNSS_PROFILES[i].max_rate_hz);
-    printf("Magnetometer (--mag):\n");
-    for (size_t i = 0; i < MAG_PROFILE_COUNT; i++)
-        printf("  %-12s %-12s max %.0f Hz\n", MAG_PROFILES[i].name, MAG_PROFILES[i].grade, MAG_PROFILES[i].max_rate_hz);
-    printf("Weather (--weather):\n");
-    for (size_t i = 0; i < CONDITIONS_PRESET_COUNT; i++)
-        printf("  %-14s %5.1f C, wind %.1f m/s\n", CONDITIONS_PRESETS[i].name, CONDITIONS_PRESETS[i].ambient_temp_c, CONDITIONS_PRESETS[i].wind_speed_20ft_ms);
-    printf("Camera (--cam-profile):\n");
-    for (size_t i = 0; i < CAMERA_PROFILE_COUNT; i++)
-        printf("  %-12s %-12s max %ux%u, %.0f fps\n", CAMERA_PROFILES[i].name, CAMERA_PROFILES[i].grade, (unsigned)CAMERA_PROFILES[i].max_width, (unsigned)CAMERA_PROFILES[i].max_height, CAMERA_PROFILES[i].max_fps);
-    printf("Rangefinder (--rangefinder):\n");
-    for (size_t i = 0; i < RANGE_PROFILE_COUNT; i++)
-        printf("  %-14s %-12s %.2f..%.0f m, max %.0f Hz\n", RANGE_PROFILES[i].name, RANGE_PROFILES[i].grade, RANGE_PROFILES[i].min_range_m, RANGE_PROFILES[i].max_range_90_m, RANGE_PROFILES[i].max_rate_hz);
-    printf("Barometer (--baro):\n");
-    for (size_t i = 0; i < BARO_PROFILE_COUNT; i++)
-        printf("  %-12s %-12s max %.0f Hz\n", BARO_PROFILES[i].name, BARO_PROFILES[i].grade, BARO_PROFILES[i].max_rate_hz);
-}
-#endif
-
-static int parse_args(int argc, char **argv, cli_args_t *args) {
-    args->headless   = false;
-    args->duration_set = false;
-    args->duration   = 10.0;
-    args->altitude   = 1.0;
-    args->model_path = NULL;
-#ifdef ENABLE_IPC
-    args->no_ipc     = false;
-    args->lidar_rays = 36;
-    args->cam_w      = 640;
-    args->cam_h      = 360;
-    args->cam_fps    = 8.0;
-    args->imu_rate   = 1000.0;
-    args->gnss_rate  = 10.0;
-    args->ir_rate    = 100.0;
-    args->baro_rate  = 50.0;
-    args->scenario_path = NULL;
-#endif
-
-    for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "--headless"))                  { args->headless = true; }
-        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { args->duration   = strtod(argv[++i], NULL); args->duration_set = true; }
-        else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   { args->altitude   = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--model")    && i+1 < argc)   { args->model_path = argv[++i]; }
-#ifdef ENABLE_IPC
-        else if (!strcmp(argv[i], "--no-ipc"))                    { args->no_ipc = true; }
-        else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { args->lidar_rays = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { args->cam_w = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { args->cam_h = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--imu")        && i+1 < argc) { args->imu_name = argv[++i]; }
-        else if (!strcmp(argv[i], "--gnss")       && i+1 < argc) { args->gnss_name = argv[++i]; }
-        else if (!strcmp(argv[i], "--baro")       && i+1 < argc) { args->baro_name = argv[++i]; }
-        else if (!strcmp(argv[i], "--mag")        && i+1 < argc) { args->mag_name = argv[++i]; }
-        else if (!strcmp(argv[i], "--gnss-cold")) { args->gnss_cold = true; }
-        else if (!strcmp(argv[i], "--gnss-rtk")) { args->gnss_rtk = true; }
-        else if (!strcmp(argv[i], "--mag-rate")   && i+1 < argc) { args->mag_rate = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--cam-profile") && i+1 < argc) { args->cam_profile = argv[++i]; args->cam_mono = true; }
-        else if (!strcmp(argv[i], "--cam-mono")) { args->cam_mono = true; }
-        else if (!strcmp(argv[i], "--rangefinder") && i+1 < argc) { args->range_name = argv[++i]; }
-        else if (!strcmp(argv[i], "--rangefinder-rate") && i+1 < argc) { args->ir_rate = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--weather")    && i+1 < argc) { args->weather = argv[++i]; }
-        else if (!strcmp(argv[i], "--vibration")  && i+1 < argc) { args->vibration = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--imu-rate")   && i+1 < argc) { args->imu_rate = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--gnss-rate")  && i+1 < argc) { args->gnss_rate = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--baro-rate")  && i+1 < argc) { args->baro_rate = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--list-sensors")) { args->list_sensors = true; }
-        else if (!strcmp(argv[i], "--cam-fps")    && i+1 < argc) { args->cam_fps = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--scenario")   && i+1 < argc) { args->scenario_path = argv[++i]; }
-#endif
-        else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            print_usage(argv[0]);
-            return 1;
-        } else {
-            fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            print_usage(argv[0]);
-            return -1;
-        }
-    }
-    return 0;
 }
 
 #ifdef ENABLE_FOXGLOVE
@@ -249,13 +93,13 @@ static int run_headless(sim_t *sim, double duration) {
 
 int main(int argc, char **argv) {
     cli_args_t args = {0};
-    int parse_rc = parse_args(argc, argv, &args);
+    int parse_rc = cli_parse(argc, argv, &args);
     if (parse_rc > 0) return 0;
     if (parse_rc < 0) return 1;
 
 #ifdef ENABLE_IPC
     if (args.list_sensors) {
-        list_sensor_profiles();
+        cli_list_sensor_profiles();
         return 0;
     }
     if (args.scenario_path) {
