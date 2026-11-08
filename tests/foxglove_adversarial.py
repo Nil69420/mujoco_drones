@@ -216,9 +216,16 @@ def attack_extra_clients():
 async def main(binary):
     env = dict(os.environ)
     env.setdefault("RENOIR_SHM_DIR", "/tmp")
-    proc = subprocess.Popen([binary, "--headless", "--duration", "10000000"], cwd=os.path.dirname(binary),
+    env.pop("LD_PRELOAD", None)
+    if os.environ.get("SIM_LD_PRELOAD"):
+        env["LD_PRELOAD"] = os.environ["SIM_LD_PRELOAD"]
+    cmd = [binary, "--headless", "--duration", "10000000"]
+    if os.environ.get("SIM_NO_ASLR"):
+        preload = env.pop("LD_PRELOAD", None)
+        cmd = ["setarch", "x86_64", "-R"] + (["env", f"LD_PRELOAD={preload}"] if preload else []) + cmd
+    proc = subprocess.Popen(cmd, cwd=os.path.dirname(binary),
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
-    for _ in range(100):
+    for _ in range(300):
         try:
             socket.create_connection((HOST, PORT), timeout=0.3).close()
             break
@@ -272,7 +279,7 @@ async def main(binary):
     except subprocess.TimeoutExpired:
         proc.kill()
         err = ""
-    bad = [l for l in err.splitlines() if "AddressSanitizer" in l or "runtime error" in l]
+    bad = [l for l in err.splitlines() if "Sanitizer" in l or "runtime error" in l]
     record("no sanitizer reports", not bad, "; ".join(bad[:3]))
     failed = [n for n, ok in results if not ok]
     print(f"\n{len(results) - len(failed)} passed, {len(failed)} failed")
