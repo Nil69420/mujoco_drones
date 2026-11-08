@@ -54,7 +54,7 @@ int imu_model_init(imu_model_t *model, const imu_profile_t *profile, double odr_
 static void channel_step(imu_model_t *m, double noise_density, double walk, double tempco,
                          double gm_sigma, double range, const double truth[3], double gm[3],
                          double rw[3], const double turn_on[3], const double scale[3],
-                         double lpf[3], double extra[3], double temp_delta, double out[3]) {
+                         double lpf[3], const double extra[3], double temp_delta, double out[3]) {
     double mixed[3];
     for (int i = 0; i < 3; i++) {
         mixed[i] = 0.0;
@@ -81,7 +81,7 @@ static void channel_step(imu_model_t *m, double noise_density, double walk, doub
 void imu_model_step(imu_model_t *model, const double true_gyro[3], const double true_accel[3],
                     double sensor_temp_c, const double vib_accel[3], const double vib_gyro[3],
                     double gyro_out[3], double accel_out[3]) {
-    const imu_profile_t *p = model->profile;
+    const imu_profile_t *prof = model->profile;
     double temp_delta = sensor_temp_c - IMU_REFERENCE_TEMP_C;
     double accel_in[3];
     double gyro_extra[3];
@@ -90,14 +90,14 @@ void imu_model_step(imu_model_t *model, const double true_gyro[3], const double 
         accel_in[i] = true_accel[i];
         accel_extra[i] = vib_accel != NULL ? vib_accel[i] : 0.0;
         gyro_extra[i] = (vib_gyro != NULL ? vib_gyro[i] : 0.0) +
-                        p->gyro_gsens * (true_accel[i] + accel_extra[i]);
+                        prof->gyro_gsens * (true_accel[i] + accel_extra[i]);
     }
-    channel_step(model, p->gyro_noise_density, p->gyro_bias_walk, p->gyro_tempco,
-                 model->gyro_gm_sigma, p->gyro_range, true_gyro, model->gyro_gm,
+    channel_step(model, prof->gyro_noise_density, prof->gyro_bias_walk, prof->gyro_tempco,
+                 model->gyro_gm_sigma, prof->gyro_range, true_gyro, model->gyro_gm,
                  model->gyro_walk, model->gyro_turn_on, model->gyro_scale, model->gyro_lpf,
                  gyro_extra, temp_delta, gyro_out);
-    channel_step(model, p->accel_noise_density, p->accel_bias_walk, p->accel_tempco,
-                 model->accel_gm_sigma, p->accel_range, accel_in, model->accel_gm,
+    channel_step(model, prof->accel_noise_density, prof->accel_bias_walk, prof->accel_tempco,
+                 model->accel_gm_sigma, prof->accel_range, accel_in, model->accel_gm,
                  model->accel_walk, model->accel_turn_on, model->accel_scale, model->accel_lpf,
                  accel_extra, temp_delta, accel_out);
     model->lpf_primed = 1;

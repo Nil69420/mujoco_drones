@@ -11,49 +11,52 @@ static const char SUBPROTOCOL[] = "foxglove.websocket.v1";
 
 enum { MAX_HEADERS = 64, KEY_LEN = 24 };
 
-static char lower(char c) {
-    return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+static char lower(char ch) {
+    if (ch >= 'A' && ch <= 'Z') {
+        return (char)((int)ch + 32);
+    }
+    return ch;
 }
 
-static bool name_equals(const char *a, size_t alen, const char *b) {
-    size_t blen = strlen(b);
-    if (alen != blen) {
+static bool name_equals(const char *lhs, size_t lhs_len, const char *rhs) {
+    size_t rhs_len = strlen(rhs);
+    if (lhs_len != rhs_len) {
         return false;
     }
-    for (size_t i = 0; i < alen; i++) {
-        if (lower(a[i]) != lower(b[i])) {
+    for (size_t idx = 0; idx < lhs_len; idx++) {
+        if (lower(lhs[idx]) != lower(rhs[idx])) {
             return false;
         }
     }
     return true;
 }
 
-static bool list_has_token(const char *v, size_t len, const char *token) {
-    size_t tlen = strlen(token);
-    size_t i = 0;
-    while (i < len) {
-        while (i < len && (v[i] == ' ' || v[i] == '\t' || v[i] == ',')) {
-            i++;
+static bool list_has_token(const char *value, size_t len, const char *token) {
+    size_t token_len = strlen(token);
+    size_t pos = 0;
+    while (pos < len) {
+        while (pos < len && (value[pos] == ' ' || value[pos] == '\t' || value[pos] == ',')) {
+            pos++;
         }
-        size_t start = i;
-        while (i < len && v[i] != ',' && v[i] != ' ' && v[i] != '\t') {
-            i++;
+        size_t start = pos;
+        while (pos < len && value[pos] != ',' && value[pos] != ' ' && value[pos] != '\t') {
+            pos++;
         }
-        if (i - start == tlen && name_equals(v + start, tlen, token)) {
+        if (pos - start == token_len && name_equals(value + start, token_len, token)) {
             return true;
         }
     }
     return false;
 }
 
-static bool key_valid(const char *k, size_t len) {
-    if (len != KEY_LEN || k[22] != '=' || k[23] != '=') {
+static bool key_valid(const char *key, size_t len) {
+    if (len != KEY_LEN || key[22] != '=' || key[23] != '=') {
         return false;
     }
-    for (size_t i = 0; i < 22; i++) {
-        char c = k[i];
-        bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-                  c == '+' || c == '/';
+    for (size_t idx = 0; idx < 22; idx++) {
+        char ch = key[idx];
+        bool ok = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
+                  ch == '+' || ch == '/';
         if (!ok) {
             return false;
         }
@@ -73,6 +76,83 @@ static const char *find_crlfcrlf(const char *buf, size_t len) {
     return NULL;
 }
 
+typedef struct {
+    bool upgrade;
+    bool connection;
+    bool version;
+    bool have_key;
+    char key[KEY_LEN + 1];
+} header_state_t;
+
+static bool request_line_ok(const char *line, size_t first_len) {
+    if (first_len < 14 || memcmp(line, "GET /", 5) != 0 ||
+        memcmp(line + first_len - 9, " HTTP/1.1", 9) != 0) {
+        return false;
+    }
+    for (size_t idx = 4; idx + 9 < first_len; idx++) {
+        if (line[idx] == ' ' || (unsigned char)line[idx] < 0x21) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool apply_header(header_state_t *state, ws_handshake_t *out, const char *name, size_t name_len,
+                         const char *value, size_t value_len) {
+    if (name_equals(name, name_len, "upgrade")) {
+        state->upgrade = state->upgrade || list_has_token(value, value_len, "websocket");
+    } else if (name_equals(name, name_len, "connection")) {
+        state->connection = state->connection || list_has_token(value, value_len, "upgrade");
+    } else if (name_equals(name, name_len, "sec-websocket-version")) {
+        state->version = value_len == 2 && value[0] == '1' && value[1] == '3';
+    } else if (name_equals(name, name_len, "sec-websocket-key")) {
+        if (state->have_key || !key_valid(value, value_len)) {
+            return false;
+        }
+        memcpy(state->key, value, KEY_LEN);
+        state->key[KEY_LEN] = '\0';
+        state->have_key = true;
+    } else if (name_equals(name, name_len, "sec-websocket-protocol")) {
+        out->wants_foxglove_subprotocol =
+            out->wants_foxglove_subprotocol || list_has_token(value, value_len, SUBPROTOCOL);
+    }
+    return true;
+}
+
+static bool parse_header_line(header_state_t *state, ws_handshake_t *out, const char *line,
+                              size_t line_len) {
+    const char *colon = memchr(line, ':', line_len);
+    if (colon == NULL || colon == line) {
+        return false;
+    }
+    size_t name_len = (size_t)(colon - line);
+    const char *value = colon + 1;
+    size_t value_len = line_len - name_len - 1;
+    while (value_len > 0 && (*value == ' ' || *value == '\t')) {
+        value++;
+        value_len--;
+    }
+    while (value_len > 0 && (value[value_len - 1] == ' ' || value[value_len - 1] == '\t')) {
+        value_len--;
+    }
+    return apply_header(state, out, line, name_len, value, value_len);
+}
+
+static bool compute_accept(const header_state_t *state, ws_handshake_t *out) {
+    char concat[KEY_LEN + sizeof(WS_GUID)];
+    int written = snprintf(concat, sizeof(concat), "%s%s", state->key, WS_GUID);
+    if (written <= 0) {
+        return false;
+    }
+    uint8_t hash[20];
+    fg_sha1((const uint8_t *)concat, (size_t)written, hash);
+    char encoded[32];
+    fg_base64_encode(hash, 20, encoded);
+    memcpy(out->accept, encoded, WS_ACCEPT_LEN);
+    out->accept[WS_ACCEPT_LEN] = '\0';
+    return true;
+}
+
 ws_handshake_status_t ws_handshake_check(const char *buf, size_t len, ws_handshake_t *out) {
     const char *end = find_crlfcrlf(buf, len > WS_HANDSHAKE_MAX ? WS_HANDSHAKE_MAX : len);
     if (end == NULL) {
@@ -82,82 +162,28 @@ ws_handshake_status_t ws_handshake_check(const char *buf, size_t len, ws_handsha
     memset(out, 0, sizeof(*out));
     out->request_len = head_len + 4;
 
-    const char *line = buf;
     const char *stop = buf + head_len;
-    const char *eol = memchr(line, '\r', head_len);
-    size_t first_len = eol == NULL ? head_len : (size_t)(eol - line);
-    if (first_len < 14 || memcmp(line, "GET /", 5) != 0 ||
-        memcmp(line + first_len - 9, " HTTP/1.1", 9) != 0) {
+    const char *eol = memchr(buf, '\r', head_len);
+    size_t first_len = eol == NULL ? head_len : (size_t)(eol - buf);
+    if (!request_line_ok(buf, first_len)) {
         return WS_HS_BAD;
     }
-    for (size_t i = 4; i + 9 < first_len; i++) {
-        if (line[i] == ' ' || (unsigned char)line[i] < 0x21) {
-            return WS_HS_BAD;
-        }
-    }
-
-    bool upgrade = false;
-    bool connection = false;
-    bool version = false;
-    bool have_key = false;
-    char key[KEY_LEN + 1];
+    header_state_t state;
+    memset(&state, 0, sizeof(state));
     int headers = 0;
-    line = eol == NULL ? stop : eol + 2;
+    const char *line = eol == NULL ? stop : eol + 2;
     while (line < stop) {
-        const char *e = memchr(line, '\r', (size_t)(stop - line));
-        size_t llen = e == NULL ? (size_t)(stop - line) : (size_t)(e - line);
-        if (++headers > MAX_HEADERS) {
+        const char *line_end = memchr(line, '\r', (size_t)(stop - line));
+        size_t line_len = line_end == NULL ? (size_t)(stop - line) : (size_t)(line_end - line);
+        if (++headers > MAX_HEADERS || !parse_header_line(&state, out, line, line_len)) {
             return WS_HS_BAD;
         }
-        const char *colon = memchr(line, ':', llen);
-        if (colon == NULL || colon == line) {
-            return WS_HS_BAD;
-        }
-        size_t nlen = (size_t)(colon - line);
-        const char *v = colon + 1;
-        size_t vlen = llen - nlen - 1;
-        while (vlen > 0 && (*v == ' ' || *v == '\t')) {
-            v++;
-            vlen--;
-        }
-        while (vlen > 0 && (v[vlen - 1] == ' ' || v[vlen - 1] == '\t')) {
-            vlen--;
-        }
-        if (name_equals(line, nlen, "upgrade")) {
-            upgrade = upgrade || list_has_token(v, vlen, "websocket");
-        } else if (name_equals(line, nlen, "connection")) {
-            connection = connection || list_has_token(v, vlen, "upgrade");
-        } else if (name_equals(line, nlen, "sec-websocket-version")) {
-            version = vlen == 2 && v[0] == '1' && v[1] == '3';
-        } else if (name_equals(line, nlen, "sec-websocket-key")) {
-            if (have_key || !key_valid(v, vlen)) {
-                return WS_HS_BAD;
-            }
-            memcpy(key, v, KEY_LEN);
-            key[KEY_LEN] = '\0';
-            have_key = true;
-        } else if (name_equals(line, nlen, "sec-websocket-protocol")) {
-            out->wants_foxglove_subprotocol = out->wants_foxglove_subprotocol ||
-                                              list_has_token(v, vlen, SUBPROTOCOL);
-        }
-        line = e == NULL ? stop : e + 2;
+        line = line_end == NULL ? stop : line_end + 2;
     }
-    if (!upgrade || !connection || !version || !have_key) {
+    if (!state.upgrade || !state.connection || !state.version || !state.have_key) {
         return WS_HS_BAD;
     }
-
-    char concat[KEY_LEN + sizeof(WS_GUID)];
-    int cl = snprintf(concat, sizeof(concat), "%s%s", key, WS_GUID);
-    if (cl <= 0) {
-        return WS_HS_BAD;
-    }
-    uint8_t hash[20];
-    fg_sha1((const uint8_t *)concat, (size_t)cl, hash);
-    char b64[32];
-    fg_base64_encode(hash, 20, b64);
-    memcpy(out->accept, b64, WS_ACCEPT_LEN);
-    out->accept[WS_ACCEPT_LEN] = '\0';
-    return WS_HS_OK;
+    return compute_accept(&state, out) ? WS_HS_OK : WS_HS_BAD;
 }
 
 int ws_handshake_response(const ws_handshake_t *hs, char *dst, size_t cap) {
@@ -178,34 +204,34 @@ int ws_handshake_response(const ws_handshake_t *hs, char *dst, size_t cap) {
 bool ws_utf8_valid(const uint8_t *s, size_t n) {
     size_t i = 0;
     while (i < n) {
-        uint8_t c = s[i];
-        if (c < 0x80) {
+        uint8_t lead = s[i];
+        if (lead < 0x80) {
             i++;
-        } else if (c >= 0xC2 && c <= 0xDF) {
+        } else if (lead >= 0xC2 && lead <= 0xDF) {
             if (i + 1 >= n || (s[i + 1] & 0xC0) != 0x80) {
                 return false;
             }
             i += 2;
-        } else if (c >= 0xE0 && c <= 0xEF) {
+        } else if (lead >= 0xE0 && lead <= 0xEF) {
             if (i + 2 >= n || (s[i + 1] & 0xC0) != 0x80 || (s[i + 2] & 0xC0) != 0x80) {
                 return false;
             }
-            if (c == 0xE0 && s[i + 1] < 0xA0) {
+            if (lead == 0xE0 && s[i + 1] < 0xA0) {
                 return false;
             }
-            if (c == 0xED && s[i + 1] > 0x9F) {
+            if (lead == 0xED && s[i + 1] > 0x9F) {
                 return false;
             }
             i += 3;
-        } else if (c >= 0xF0 && c <= 0xF4) {
+        } else if (lead >= 0xF0 && lead <= 0xF4) {
             if (i + 3 >= n || (s[i + 1] & 0xC0) != 0x80 || (s[i + 2] & 0xC0) != 0x80 ||
                 (s[i + 3] & 0xC0) != 0x80) {
                 return false;
             }
-            if (c == 0xF0 && s[i + 1] < 0x90) {
+            if (lead == 0xF0 && s[i + 1] < 0x90) {
                 return false;
             }
-            if (c == 0xF4 && s[i + 1] > 0x8F) {
+            if (lead == 0xF4 && s[i + 1] > 0x8F) {
                 return false;
             }
             i += 4;
@@ -347,6 +373,39 @@ static void frame_done(ws_parser_t *p, ws_event_t *ev) {
     }
 }
 
+static void feed_header_byte(ws_parser_t *prs, uint8_t byte, ws_event_t *ev) {
+    prs->head[prs->head_len++] = byte;
+    if (prs->head_len == 2) {
+        uint8_t len7 = prs->head[1] & 0x7FU;
+        size_t ext = len7 == 126 ? 2 : (len7 == 127 ? 8 : 0);
+        prs->head_need = 2 + ext + ((prs->head[1] & 0x80U) != 0 ? 4U : 0U);
+    }
+    if (prs->head_len >= prs->head_need && prs->head_len >= 2) {
+        header_done(prs, ev);
+        if (ev->kind == WS_EV_NONE && prs->payload_len == 0) {
+            frame_done(prs, ev);
+        }
+    }
+}
+
+static size_t feed_payload(ws_parser_t *prs, const uint8_t *in, size_t avail, ws_event_t *ev) {
+    uint64_t remaining = prs->payload_len - prs->payload_got;
+    size_t take = (uint64_t)avail < remaining ? avail : (size_t)remaining;
+    for (size_t idx = 0; idx < take; idx++) {
+        uint8_t plain = in[idx] ^ prs->mask[(prs->payload_got + idx) & 3U];
+        if (prs->opcode >= 8) {
+            prs->control[prs->control_len++] = plain;
+        } else {
+            prs->msg[prs->msg_len++] = plain;
+        }
+    }
+    prs->payload_got += take;
+    if (prs->payload_got == prs->payload_len) {
+        frame_done(prs, ev);
+    }
+    return take;
+}
+
 size_t ws_parser_feed(ws_parser_t *p, const uint8_t *in, size_t n, ws_event_t *ev) {
     ev->kind = WS_EV_NONE;
     ev->data = NULL;
@@ -360,34 +419,9 @@ size_t ws_parser_feed(ws_parser_t *p, const uint8_t *in, size_t n, ws_event_t *e
     size_t used = 0;
     while (used < n && ev->kind == WS_EV_NONE) {
         if (p->state == WS_STATE_HEADER) {
-            p->head[p->head_len++] = in[used++];
-            if (p->head_len == 2) {
-                uint8_t l7 = p->head[1] & 0x7FU;
-                size_t ext = l7 == 126 ? 2 : (l7 == 127 ? 8 : 0);
-                p->head_need = 2 + ext + ((p->head[1] & 0x80U) != 0 ? 4U : 0U);
-            }
-            if (p->head_len >= p->head_need && p->head_len >= 2) {
-                header_done(p, ev);
-                if (ev->kind == WS_EV_NONE && p->payload_len == 0) {
-                    frame_done(p, ev);
-                }
-            }
+            feed_header_byte(p, in[used++], ev);
         } else {
-            uint64_t remaining = p->payload_len - p->payload_got;
-            size_t take = (uint64_t)(n - used) < remaining ? (n - used) : (size_t)remaining;
-            for (size_t i = 0; i < take; i++) {
-                uint8_t b = in[used + i] ^ p->mask[(p->payload_got + i) & 3U];
-                if (p->opcode >= 8) {
-                    p->control[p->control_len++] = b;
-                } else {
-                    p->msg[p->msg_len++] = b;
-                }
-            }
-            used += take;
-            p->payload_got += take;
-            if (p->payload_got == p->payload_len) {
-                frame_done(p, ev);
-            }
+            used += feed_payload(p, in + used, n - used, ev);
         }
     }
     return used;

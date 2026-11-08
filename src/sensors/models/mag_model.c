@@ -30,24 +30,24 @@ int mag_model_init(mag_model_t *model, const mag_profile_t *profile, double rate
 
 void mag_model_step(mag_model_t *model, const double field_body_nt[3], double battery_current_a,
                     double sensor_temp_c, double out_nt[3]) {
-    const mag_profile_t *p = model->profile;
-    double temp = p->tempco_nt_per_k * (sensor_temp_c - MAG_REFERENCE_TEMP_C);
+    const mag_profile_t *prof = model->profile;
+    double temp = prof->tempco_nt_per_k * (sensor_temp_c - MAG_REFERENCE_TEMP_C);
     for (int i = 0; i < 3; i++) {
-        double v = 0.0;
+        double acc = 0.0;
         for (int j = 0; j < 3; j++) {
-            v += model->soft_iron[i][j] * field_body_nt[j];
+            acc += model->soft_iron[i][j] * field_body_nt[j];
         }
-        v += model->hard_iron[i] + p->motor_nt_per_a * battery_current_a * model->motor_axis[i] +
-             temp + noise_gaussian(&model->rng, p->noise_nt);
-        if (v > p->range_nt) {
-            v = p->range_nt;
-        } else if (v < -p->range_nt) {
-            v = -p->range_nt;
+        acc += model->hard_iron[i] + prof->motor_nt_per_a * battery_current_a * model->motor_axis[i] +
+             temp + noise_gaussian(&model->rng, prof->noise_nt);
+        if (acc > prof->range_nt) {
+            acc = prof->range_nt;
+        } else if (acc < -prof->range_nt) {
+            acc = -prof->range_nt;
         }
-        if (p->resolution_nt > 0.0) {
-            v = round(v / p->resolution_nt) * p->resolution_nt;
+        if (prof->resolution_nt > 0.0) {
+            acc = round(acc / prof->resolution_nt) * prof->resolution_nt;
         }
-        out_nt[i] = v;
+        out_nt[i] = acc;
     }
 }
 

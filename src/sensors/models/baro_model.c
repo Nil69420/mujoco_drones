@@ -24,16 +24,16 @@ int baro_model_init(baro_model_t *model, const baro_profile_t *profile, double r
 
 double baro_model_step(baro_model_t *model, double true_pressure_pa, double sensor_temp_c,
                        double thrust_fraction) {
-    const baro_profile_t *p = model->profile;
+    const baro_profile_t *prof = model->profile;
     double drive = sqrt(1.0 - model->decay * model->decay);
     model->drift = model->decay * model->drift +
-                   noise_gaussian(&model->rng, p->drift_sigma_pa * drive);
+                   noise_gaussian(&model->rng, prof->drift_sigma_pa * drive);
     double value = true_pressure_pa + model->offset + model->drift +
-                   p->tempco_pa_per_k * (sensor_temp_c - BARO_REFERENCE_TEMP_C) -
-                   p->propwash_pa * thrust_fraction * thrust_fraction +
-                   noise_gaussian(&model->rng, p->noise_pa);
-    if (p->resolution_pa > 0.0) {
-        value = round(value / p->resolution_pa) * p->resolution_pa;
+                   prof->tempco_pa_per_k * (sensor_temp_c - BARO_REFERENCE_TEMP_C) -
+                   prof->propwash_pa * thrust_fraction * thrust_fraction +
+                   noise_gaussian(&model->rng, prof->noise_pa);
+    if (prof->resolution_pa > 0.0) {
+        value = round(value / prof->resolution_pa) * prof->resolution_pa;
     }
     return value;
 }

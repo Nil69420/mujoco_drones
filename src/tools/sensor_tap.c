@@ -1,7 +1,7 @@
-#include "sensors/sensor_types.h"
-#include "transport/transport_renoir.h"
 #include "renoir.h"
+#include "sensors/sensor_types.h"
 #include "transport/frame_out.h"
+#include "transport/transport_renoir.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -9,17 +9,62 @@
 #include <string.h>
 #include <time.h>
 
-enum { FRAME_RING_HEADER_BYTES = 8 };
-enum { CAM_MAX_BYTES = sizeof(sensor_camera_rgb_hdr_t) + CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3 };
+enum {
+    BURST = 64,
+    CAM_BURST = 4,
+    FRAME_RING_HEADER_BYTES = 8,
+    CAM_PIXELS = CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3,
+    DISCOVER_CAPACITY = 128,
+    SAMPLE_STRIDE = 97,
+    IMU_CHANNELS = 9
+};
 
 typedef struct {
-    double n, sum[9], sq[9];
-} acc_t;
+    unsigned long count;
+    unsigned long first_seq;
+    unsigned long last_seq;
+    unsigned long long first_ns;
+    unsigned long long last_ns;
+} stream_t;
 
-static void usage(const char *prog) {
-    printf("Usage: %s [PREFIX] [SECONDS]\n", prog);
-    printf("Prints rates and statistics of the IMU, GNSS and barometer topics.\n");
-}
+typedef struct {
+    stream_t stream;
+    double sum[IMU_CHANNELS];
+    double sum_sq[IMU_CHANNELS];
+} imu_stats_t;
+
+typedef struct {
+    stream_t stream;
+    int fix;
+    int satellites;
+    double hdop;
+    double altitude;
+} gnss_stats_t;
+
+typedef struct {
+    stream_t stream;
+    double sum[2];
+    double sum_sq[2];
+} baro_stats_t;
+
+typedef struct {
+    unsigned long total;
+    unsigned long valid;
+    double sum;
+    double sum_sq;
+    float range_min;
+    float range_max;
+} ir_stats_t;
+
+typedef struct {
+    stream_t stream;
+    unsigned long gaps;
+    unsigned long torn;
+    double mean;
+    unsigned width;
+    unsigned height;
+    unsigned channels;
+} cam_stats_t;
 
 static double now_s(void) {
     struct timespec ts;
@@ -27,200 +72,325 @@ static double now_s(void) {
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
+static void stream_add(stream_t *stream, unsigned long seq, unsigned long long stamp_ns) {
+    if (stream->count == 0) {
+        stream->first_seq = seq;
+        stream->first_ns = stamp_ns;
+    }
+    stream->last_seq = seq;
+    stream->last_ns = stamp_ns;
+    stream->count++;
+}
+
+static double stream_rate(const stream_t *stream) {
+    if (stream->last_ns <= stream->first_ns) {
+        return 0.0;
+    }
+    return (double)(stream->last_seq - stream->first_seq) * 1e9 /
+           (double)(stream->last_ns - stream->first_ns);
+}
+
+static double spread(double sum, double sum_sq, double count) {
+    double mean = sum / count;
+    double var = sum_sq / count - mean * mean;
+    return sqrt(var > 0.0 ? var : 0.0);
+}
+
+static int drain_imu(transport_sub_t *sub, imu_stats_t *stats) {
+    sensor_imu_t msg;
+    size_t len = 0;
+    int got = 0;
+    for (int burst = 0; burst < BURST && transport_read_next(sub, &msg, sizeof(msg), &len) == 0 &&
+                        len == sizeof(msg);
+         burst++) {
+        const double values[IMU_CHANNELS] = {msg.accel[0], msg.accel[1], msg.accel[2],
+                                             msg.gyro[0],  msg.gyro[1],  msg.gyro[2],
+                                             msg.mag[0],   msg.mag[1],   msg.mag[2]};
+        for (int idx = 0; idx < IMU_CHANNELS; idx++) {
+            stats->sum[idx] += values[idx];
+            stats->sum_sq[idx] += values[idx] * values[idx];
+        }
+        stream_add(&stats->stream, msg.header.sequence, msg.header.timestamp_ns);
+        got = 1;
+    }
+    return got;
+}
+
+static int drain_gnss(transport_sub_t *sub, gnss_stats_t *stats) {
+    sensor_gnss_t msg;
+    size_t len = 0;
+    int got = 0;
+    for (int burst = 0; burst < BURST && transport_read_next(sub, &msg, sizeof(msg), &len) == 0 &&
+                        len == sizeof(msg);
+         burst++) {
+        stats->fix = msg.fix_type;
+        stats->satellites = msg.num_satellites;
+        stats->hdop = msg.hdop;
+        stats->altitude = msg.altitude;
+        stream_add(&stats->stream, msg.header.sequence, msg.header.timestamp_ns);
+        got = 1;
+    }
+    return got;
+}
+
+static int drain_baro(transport_sub_t *sub, baro_stats_t *stats) {
+    sensor_baro_t msg;
+    size_t len = 0;
+    int got = 0;
+    for (int burst = 0; burst < BURST && transport_read_next(sub, &msg, sizeof(msg), &len) == 0 &&
+                        len == sizeof(msg);
+         burst++) {
+        stats->sum[0] += msg.pressure_pa;
+        stats->sum_sq[0] += msg.pressure_pa * msg.pressure_pa;
+        stats->sum[1] += msg.altitude_m;
+        stats->sum_sq[1] += msg.altitude_m * msg.altitude_m;
+        stream_add(&stats->stream, msg.header.sequence, msg.header.timestamp_ns);
+        got = 1;
+    }
+    return got;
+}
+
+static int drain_ir(transport_sub_t *sub, ir_stats_t *stats) {
+    sensor_infrared_t msg;
+    size_t len = 0;
+    int got = 0;
+    for (int burst = 0; burst < BURST && transport_read_next(sub, &msg, sizeof(msg), &len) == 0 &&
+                        len == sizeof(msg);
+         burst++) {
+        stats->total++;
+        stats->range_min = msg.range_min;
+        stats->range_max = msg.range_max;
+        if (msg.range_m >= 0.0F) {
+            stats->valid++;
+            stats->sum += (double)msg.range_m;
+            stats->sum_sq += (double)msg.range_m * (double)msg.range_m;
+        }
+        got = 1;
+    }
+    return got;
+}
+
+static void dump_pgm(const char *path, const unsigned char *pixels, unsigned width, unsigned height) {
+    FILE *file = fopen(path, "wb");
+    if (file == NULL) {
+        return;
+    }
+    fprintf(file, "P5\n%u %u\n255\n", width, height);
+    fwrite(pixels, 1, (size_t)width * height, file);
+    fclose(file);
+}
+
+static int read_frame(RenoirFrameHandle handle, cam_stats_t *stats, const char *pgm_path) {
+    const uint8_t *data = NULL;
+    size_t len = 0;
+    if (renoir_frame_view(handle, &data, &len) != RenoirErrorCode_Success) {
+        return 0;
+    }
+    if (len < sizeof(sensor_camera_rgb_hdr_t)) {
+        renoir_frame_release(handle);
+        return 0;
+    }
+    const sensor_camera_rgb_hdr_t *hdr = (const sensor_camera_rgb_hdr_t *)data;
+    unsigned width = hdr->width;
+    unsigned height = hdr->height;
+    unsigned channels = hdr->channels;
+    unsigned long seq = hdr->header.sequence;
+    unsigned long long stamp = hdr->header.timestamp_ns;
+    size_t pixels = (size_t)width * height * channels;
+    int valid = len >= sizeof(*hdr) + pixels && pixels > 0;
+    double sum = 0.0;
+    if (valid) {
+        const unsigned char *body = data + sizeof(*hdr);
+        for (size_t idx = 0; idx < pixels; idx += SAMPLE_STRIDE) {
+            sum += body[idx];
+        }
+        if (pgm_path != NULL && channels == 1) {
+            dump_pgm(pgm_path, body, width, height);
+        }
+    }
+    int intact = renoir_frame_view_intact(handle);
+    renoir_frame_release(handle);
+    if (!valid || !intact) {
+        stats->torn++;
+        return 1;
+    }
+    if (stats->stream.count > 0 && seq != stats->stream.last_seq + 1) {
+        stats->gaps++;
+    }
+    stream_add(&stats->stream, seq, stamp);
+    stats->width = width;
+    stats->height = height;
+    stats->channels = channels;
+    stats->mean = sum / ceil((double)pixels / SAMPLE_STRIDE);
+    return 1;
+}
+
+static int drain_camera(RenoirFrameHandle handle, cam_stats_t *stats, const char *pgm_path) {
+    int got = 0;
+    for (int burst = 0; burst < CAM_BURST && handle != NULL; burst++) {
+        if (!read_frame(handle, stats, pgm_path)) {
+            break;
+        }
+        got = 1;
+    }
+    return got;
+}
+
+static RenoirFrameHandle open_camera(const char *prefix) {
+    char name[96];
+    frame_out_name(name, sizeof(name), prefix, "_camera_frame");
+    static RenoirRingInfo infos[DISCOVER_CAPACITY];
+    uintptr_t total = 0;
+    if (renoir_discover(infos, DISCOVER_CAPACITY, &total) != RenoirErrorCode_Success) {
+        return NULL;
+    }
+    for (uintptr_t idx = 0; idx < total && idx < DISCOVER_CAPACITY; idx++) {
+        const RenoirRingInfo *info = &infos[idx];
+        if (strcmp(info->name, name) != 0 || info->msg_size < sizeof(sensor_camera_rgb_hdr_t) ||
+            info->msg_size > sizeof(sensor_camera_rgb_hdr_t) + CAM_PIXELS + FRAME_RING_HEADER_BYTES) {
+            continue;
+        }
+        RenoirFrameHandle handle = NULL;
+        if (renoir_frame_open(name, info->msg_size - FRAME_RING_HEADER_BYTES, info->slot_count,
+                              RENOIR_LEAN_CONSUMER, &handle) == RenoirErrorCode_Success) {
+            return handle;
+        }
+        fprintf(stderr, "found ring %s but could not open it\n", name);
+    }
+    fprintf(stderr, "camera ring not available\n");
+    return NULL;
+}
+
+static void report_imu(const imu_stats_t *stats, double seconds) {
+    const stream_t *str = &stats->stream;
+    unsigned long span = str->last_seq - str->first_seq + 1;
+    printf("imu: %lu msgs (%.0f Hz), sequence span %lu (%.0f%% received)\n", str->count,
+           (double)str->count / seconds, span, (double)str->count * 100.0 / (double)span);
+    if (str->count > 1) {
+        static const char *const NAMES[IMU_CHANNELS] = {"accel0", "accel1", "accel2",
+                                                        "gyro0",  "gyro1",  "gyro2",
+                                                        "mag0",   "mag1",   "mag2"};
+        for (int idx = 0; idx < IMU_CHANNELS; idx++) {
+            double count = (double)str->count;
+            printf("  %s mean %+9.5f std %.5f\n", NAMES[idx], stats->sum[idx] / count,
+                   spread(stats->sum[idx], stats->sum_sq[idx], count));
+        }
+    }
+}
+
+static void report_gnss_baro(const gnss_stats_t *gnss, const baro_stats_t *baro, double seconds) {
+    printf("gnss: %lu msgs (%.1f Hz) fix=%d sats=%d hdop=%.2f alt last %.2f\n", gnss->stream.count,
+           (double)gnss->stream.count / seconds, gnss->fix, gnss->satellites, gnss->hdop,
+           gnss->altitude);
+    printf("baro: %lu msgs (%.1f Hz)\n", baro->stream.count, (double)baro->stream.count / seconds);
+    if (baro->stream.count > 1) {
+        double count = (double)baro->stream.count;
+        printf("  pressure_pa mean %.3f std %.4f\n", baro->sum[0] / count,
+               spread(baro->sum[0], baro->sum_sq[0], count));
+        printf("  altitude_m mean %.3f std %.4f\n", baro->sum[1] / count,
+               spread(baro->sum[1], baro->sum_sq[1], count));
+    }
+    printf("last sequence numbers: imu - gnss %lu baro %lu\n", gnss->stream.last_seq,
+           baro->stream.last_seq);
+}
+
+static void report_rates(const imu_stats_t *imu, const gnss_stats_t *gnss, const baro_stats_t *baro) {
+    printf("simulated-time rates: imu %.1f Hz, gnss %.1f Hz, baro %.1f Hz\n",
+           stream_rate(&imu->stream), stream_rate(&gnss->stream), stream_rate(&baro->stream));
+}
+
+static void report_ir(const ir_stats_t *stats) {
+    if (stats->total == 0) {
+        return;
+    }
+    double mean = stats->valid > 0 ? stats->sum / (double)stats->valid : 0.0;
+    double deviation = stats->valid > 0 ? spread(stats->sum, stats->sum_sq, (double)stats->valid) : 0.0;
+    printf("infrared: %lu readings, %lu valid, mean %.3f m std %.4f m, limits %.2f..%.1f m\n",
+           stats->total, stats->valid, mean, deviation, (double)stats->range_min,
+           (double)stats->range_max);
+}
+
+static void report_camera(const cam_stats_t *stats) {
+    if (stats->stream.count == 0) {
+        return;
+    }
+    printf("camera: %lu frames received (%lu torn), %ux%u x%u, mean level %.1f, sequence gaps %lu, "
+           "simulated-time rate %.1f fps\n",
+           stats->stream.count, stats->torn, stats->width, stats->height, stats->channels,
+           stats->mean, stats->gaps, stream_rate(&stats->stream));
+}
+
+typedef struct {
+    transport_sub_t imu;
+    transport_sub_t gnss;
+    transport_sub_t baro;
+    transport_sub_t ir;
+} subs_t;
+
+static int subscribe_all(transport_t *tp, const char *prefix, subs_t *subs) {
+    char topic[96];
+    snprintf(topic, sizeof(topic), "%s/imu", prefix);
+    int bad = transport_subscribe(tp, topic, sizeof(sensor_imu_t), &subs->imu) != 0;
+    snprintf(topic, sizeof(topic), "%s/gnss", prefix);
+    bad |= transport_subscribe(tp, topic, sizeof(sensor_gnss_t), &subs->gnss) != 0;
+    snprintf(topic, sizeof(topic), "%s/baro", prefix);
+    bad |= transport_subscribe(tp, topic, sizeof(sensor_baro_t), &subs->baro) != 0;
+    snprintf(topic, sizeof(topic), "%s/infrared", prefix);
+    bad |= transport_subscribe(tp, topic, sizeof(sensor_infrared_t), &subs->ir) != 0;
+    return bad ? -1 : 0;
+}
+
 int main(int argc, char **argv) {
-    if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        usage(argv[0]);
+    if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
+        printf("Usage: %s [PREFIX] [SECONDS] [PGM_PATH]\n", argv[0]);
+        printf("Prints rates and statistics of the IMU, GNSS, barometer, infrared and camera topics.\n");
         return 0;
     }
     const char *prefix = argc > 1 ? argv[1] : "/drone";
     double seconds = argc > 2 ? strtod(argv[2], NULL) : 3.0;
-    char t_imu[64], t_gnss[64], t_baro[64];
-    snprintf(t_imu, sizeof(t_imu), "%s/imu", prefix);
-    snprintf(t_gnss, sizeof(t_gnss), "%s/gnss", prefix);
-    snprintf(t_baro, sizeof(t_baro), "%s/baro", prefix);
+    const char *pgm_path = argc > 3 ? argv[3] : NULL;
 
     transport_t tp;
     if (transport_renoir_create(&tp) != 0 || transport_init(&tp) != 0) {
         fprintf(stderr, "ERROR: transport init failed\n");
         return 1;
     }
-    transport_sub_t s_imu, s_gnss, s_baro, s_ir;
-    char t_ir[64];
-    snprintf(t_ir, sizeof(t_ir), "%s/infrared", prefix);
-    unsigned long ir_n = 0, ir_valid = 0;
-    double ir_sum = 0.0, ir_sq = 0.0;
-    float ir_rmin = 0.0F, ir_rmax = 0.0F;
-    char t_cam[96];
-    frame_out_name(t_cam, sizeof(t_cam), prefix, "_camera_frame");
-    const char *pgm_path = argc > 3 ? argv[3] : NULL;
-    RenoirFrameHandle cam_h = NULL;
-    int have_cam = 0;
-    {
-        static RenoirRingInfo infos[128];
-        uintptr_t total = 0;
-        if (renoir_discover(infos, 128, &total) == RenoirErrorCode_Success) {
-            for (uintptr_t i = 0; i < total && i < 128 && !have_cam; i++) {
-                if (strcmp(infos[i].name, t_cam) == 0 && infos[i].msg_size >= sizeof(sensor_camera_rgb_hdr_t) &&
-                    infos[i].msg_size <= CAM_MAX_BYTES + FRAME_RING_HEADER_BYTES) {
-                    have_cam = renoir_frame_open(t_cam, infos[i].msg_size - FRAME_RING_HEADER_BYTES, infos[i].slot_count,
-                                                 RENOIR_LEAN_CONSUMER, &cam_h) == RenoirErrorCode_Success;
-                    if (!have_cam) fprintf(stderr, "found ring %s (msg %u, %u slots) but could not open it\n", t_cam, infos[i].msg_size, infos[i].slot_count);
-                }
-            }
-        }
-    }
-    if (!have_cam) { fprintf(stderr, "camera ring not available\n"); }
-    unsigned long cam_n = 0, cam_seq0 = 0, cam_seq1 = 0, cam_gaps = 0;
-    unsigned long long cam_t0 = 0, cam_t1 = 0;
-    double cam_mean = 0.0;
-    unsigned cam_w = 0, cam_h_px = 0, cam_ch = 0;
-    unsigned long cam_torn = 0;
-    if (transport_subscribe(&tp, t_imu, sizeof(sensor_imu_t), &s_imu) != 0 ||
-        transport_subscribe(&tp, t_gnss, sizeof(sensor_gnss_t), &s_gnss) != 0 ||
-        transport_subscribe(&tp, t_baro, sizeof(sensor_baro_t), &s_baro) != 0 ||
-        transport_subscribe(&tp, t_ir, sizeof(sensor_infrared_t), &s_ir) != 0) {
+    subs_t subs;
+    if (subscribe_all(&tp, prefix, &subs) != 0) {
         fprintf(stderr, "ERROR: subscribe failed\n");
         transport_shutdown(&tp);
         return 1;
     }
-    acc_t imu = {0}, baro = {0};
-    unsigned long gnss_n = 0;
-    unsigned long imu_seq_first = 0, imu_seq_last = 0, gnss_seq_first = 0, gnss_seq_last = 0, baro_seq_first = 0, baro_seq_last = 0;
-    int imu_seq_set = 0;
-    unsigned long long ts_imu0 = 0, ts_imu1 = 0, ts_g0 = 0, ts_g1 = 0, ts_b0 = 0, ts_b1 = 0;
-    int fix = -1;
-    int sats = 0;
-    double hdop = 0.0, z_first = 0.0, z_last = 0.0;
+    RenoirFrameHandle camera = open_camera(prefix);
+    imu_stats_t imu = {0};
+    gnss_stats_t gnss = {0};
+    baro_stats_t baro = {0};
+    ir_stats_t ir = {0};
+    cam_stats_t cam = {0};
     double end = now_s() + seconds;
     while (now_s() < end) {
-        int got = 0;
-        sensor_imu_t m;
-        size_t len = 0;
-        for (int burst = 0; burst < 64 && transport_read_next(&s_imu, &m, sizeof(m), &len) == 0 && len == sizeof(m); burst++) {
-            double v[9] = {m.accel[0], m.accel[1], m.accel[2], m.gyro[0], m.gyro[1], m.gyro[2], m.mag[0], m.mag[1], m.mag[2]};
-            for (int i = 0; i < 9; i++) { imu.sum[i] += v[i]; imu.sq[i] += v[i] * v[i]; }
-            imu.n += 1.0;
-            if (!imu_seq_set) { imu_seq_first = m.header.sequence; imu_seq_set = 1; }
-            imu_seq_last = m.header.sequence;
-            if (ts_imu0 == 0) ts_imu0 = m.header.timestamp_ns;
-            ts_imu1 = m.header.timestamp_ns;
-            got = 1;
-        }
-        sensor_gnss_t g;
-        for (int burst = 0; burst < 64 && transport_read_next(&s_gnss, &g, sizeof(g), &len) == 0 && len == sizeof(g); burst++) {
-            if (gnss_n == 0) z_first = g.altitude;
-            z_last = g.altitude;
-            fix = g.fix_type; sats = g.num_satellites; hdop = g.hdop;
-            if (ts_g0 == 0) gnss_seq_first = g.header.sequence;
-            gnss_seq_last = g.header.sequence;
-            if (ts_g0 == 0) ts_g0 = g.header.timestamp_ns;
-            ts_g1 = g.header.timestamp_ns;
-            gnss_n++;
-            got = 1;
-        }
-        sensor_baro_t b;
-        for (int burst = 0; burst < 64 && transport_read_next(&s_baro, &b, sizeof(b), &len) == 0 && len == sizeof(b); burst++) {
-            baro.sum[0] += b.pressure_pa; baro.sq[0] += b.pressure_pa * b.pressure_pa;
-            baro.sum[1] += b.altitude_m; baro.sq[1] += b.altitude_m * b.altitude_m;
-            if (ts_b0 == 0) baro_seq_first = b.header.sequence;
-            baro_seq_last = b.header.sequence;
-            if (ts_b0 == 0) ts_b0 = b.header.timestamp_ns;
-            ts_b1 = b.header.timestamp_ns;
-            baro.n += 1.0;
-            got = 1;
-        }
-        sensor_infrared_t ir;
-        for (int burst = 0; burst < 64 && transport_read_next(&s_ir, &ir, sizeof(ir), &len) == 0 && len == sizeof(ir); burst++) {
-            ir_n++;
-            ir_rmin = ir.range_min;
-            ir_rmax = ir.range_max;
-            if (ir.range_m >= 0.0F) {
-                ir_valid++;
-                ir_sum += (double)ir.range_m;
-                ir_sq += (double)ir.range_m * (double)ir.range_m;
-            }
-            got = 1;
-        }
-        for (int burst = 0; burst < 4 && have_cam; burst++) {
-            const uint8_t *cam_buf = NULL;
-            size_t clen = 0;
-            if (renoir_frame_view(cam_h, &cam_buf, &clen) != RenoirErrorCode_Success) break;
-            if (clen < sizeof(sensor_camera_rgb_hdr_t)) { renoir_frame_release(cam_h); break; }
-            const sensor_camera_rgb_hdr_t *ch = (const sensor_camera_rgb_hdr_t *)cam_buf;
-            unsigned long long seq = ch->header.sequence;
-            unsigned long long stamp = ch->header.timestamp_ns;
-            unsigned fw = ch->width, fh = ch->height, fc = ch->channels;
-            size_t px = (size_t)fw * fh * fc;
-            double sum = 0.0;
-            int valid = clen >= sizeof(*ch) + px && px > 0;
-            if (valid) {
-                const unsigned char *d = cam_buf + sizeof(*ch);
-                for (size_t i = 0; i < px; i += 97) sum += d[i];
-                if (pgm_path != NULL && fc == 1) {
-                    FILE *f = fopen(pgm_path, "wb");
-                    if (f != NULL) {
-                        fprintf(f, "P5\n%u %u\n255\n", fw, fh);
-                        fwrite(d, 1, px, f);
-                        fclose(f);
-                    }
-                }
-            }
-            int intact = renoir_frame_view_intact(cam_h);
-            renoir_frame_release(cam_h);
-            if (!valid || !intact) { cam_torn++; continue; }
-            if (cam_n == 0) { cam_seq0 = seq; cam_t0 = stamp; }
-            else if (seq != cam_seq1 + 1) cam_gaps++;
-            cam_seq1 = seq; cam_t1 = stamp;
-            cam_w = fw; cam_h_px = fh; cam_ch = fc;
-            cam_mean = sum / (double)((px + 96) / 97);
-            cam_n++;
-            got = 1;
-        }
+        int got = drain_imu(&subs.imu, &imu);
+        got |= drain_gnss(&subs.gnss, &gnss);
+        got |= drain_baro(&subs.baro, &baro);
+        got |= drain_ir(&subs.ir, &ir);
+        got |= drain_camera(camera, &cam, pgm_path);
         if (!got) {
             struct timespec nap = {0, 200000};
             nanosleep(&nap, NULL);
         }
     }
-    printf("imu: %.0f msgs (%.0f Hz), sequence span %lu (%.0f%% received)\n", imu.n, imu.n / seconds,
-           imu_seq_last - imu_seq_first + 1, imu.n * 100.0 / (double)(imu_seq_last - imu_seq_first + 1));
-    if (imu.n > 1.0) {
-        for (int i = 0; i < 9; i++) {
-            double mean = imu.sum[i] / imu.n;
-            double var = imu.sq[i] / imu.n - mean * mean;
-            printf("  %s%d mean %+9.5f std %.5f\n", i < 3 ? "accel" : (i < 6 ? "gyro" : "mag"), i % 3, mean, sqrt(var > 0 ? var : 0));
-        }
+    report_imu(&imu, seconds);
+    report_gnss_baro(&gnss, &baro, seconds);
+    report_rates(&imu, &gnss, &baro);
+    report_ir(&ir);
+    report_camera(&cam);
+    if (camera != NULL) {
+        renoir_frame_close(camera);
     }
-    printf("gnss: %lu msgs (%.1f Hz) fix=%d sats=%d hdop=%.2f alt first %.2f last %.2f\n", gnss_n,
-           (double)gnss_n / seconds, fix, sats, hdop, z_first, z_last);
-    printf("baro: %.0f msgs (%.1f Hz)\n", baro.n, baro.n / seconds);
-    if (baro.n > 1.0) {
-        for (int i = 0; i < 2; i++) {
-            double mean = baro.sum[i] / baro.n;
-            double var = baro.sq[i] / baro.n - mean * mean;
-            printf("  %s mean %.3f std %.4f\n", i == 0 ? "pressure_pa" : "altitude_m", mean, sqrt(var > 0 ? var : 0));
-        }
-    }
-    printf("last sequence numbers: imu %lu gnss %lu baro %lu\n", imu_seq_last, gnss_seq_last, baro_seq_last);
-    printf("simulated-time rates: imu %.1f Hz, gnss %.1f Hz, baro %.1f Hz\n",
-           ts_imu1 > ts_imu0 ? (double)(imu_seq_last - imu_seq_first) * 1e9 / (double)(ts_imu1 - ts_imu0) : 0.0,
-           ts_g1 > ts_g0 ? (double)(gnss_seq_last - gnss_seq_first) * 1e9 / (double)(ts_g1 - ts_g0) : 0.0,
-           ts_b1 > ts_b0 ? (double)(baro_seq_last - baro_seq_first) * 1e9 / (double)(ts_b1 - ts_b0) : 0.0);
-    if (cam_n > 0) {
-        printf("camera: %lu frames received (%lu torn), %ux%u x%u, mean level %.1f, sequence gaps %lu, "
-               "simulated-time rate %.1f fps\n", cam_n, cam_torn, cam_w, cam_h_px, cam_ch, cam_mean, cam_gaps,
-               cam_t1 > cam_t0 ? (double)(cam_seq1 - cam_seq0) * 1e9 / (double)(cam_t1 - cam_t0) : 0.0);
-    }
-    if (ir_n > 0) {
-        double mean = ir_valid > 0 ? ir_sum / (double)ir_valid : 0.0;
-        double var = ir_valid > 0 ? ir_sq / (double)ir_valid - mean * mean : 0.0;
-        printf("infrared: %lu readings, %lu valid, mean %.3f m std %.4f m, limits %.2f..%.1f m\n", ir_n, ir_valid, mean,
-               sqrt(var > 0.0 ? var : 0.0), (double)ir_rmin, (double)ir_rmax);
-    }
-    transport_close_sub(&s_ir);
-    if (have_cam) renoir_frame_close(cam_h);
-    transport_close_sub(&s_imu);
-    transport_close_sub(&s_gnss);
-    transport_close_sub(&s_baro);
+    transport_close_sub(&subs.imu);
+    transport_close_sub(&subs.gnss);
+    transport_close_sub(&subs.baro);
+    transport_close_sub(&subs.ir);
     transport_shutdown(&tp);
     return 0;
 }

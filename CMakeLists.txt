@@ -119,7 +119,7 @@ set(COMMON_COMPILE_OPTIONS
     -fstack-protector-strong
 )
 
-add_library(mdmodels STATIC
+set(MDMODEL_SOURCES
     src/conditions/atmosphere.c
     src/conditions/wind.c
     src/conditions/thermal.c
@@ -148,6 +148,7 @@ add_library(mdmodels STATIC
     src/foxglove/sha1.c
     src/foxglove/base64.c
 )
+add_library(mdmodels STATIC ${MDMODEL_SOURCES})
 set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
     COMPILE_OPTIONS "-O3;-fno-math-errno;-ffinite-math-only;-fno-signed-zeros")
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
@@ -401,8 +402,13 @@ if(CLANG_TIDY)
     foreach(src ${SOURCES})
         list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/${src}")
     endforeach()
+    foreach(src ${MDMODEL_SOURCES})
+        list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/${src}")
+    endforeach()
     if(ENABLE_IPC)
-        list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/src/tools/send_command.c")
+        list(APPEND TIDY_SRCS
+            "${CMAKE_SOURCE_DIR}/src/tools/send_command.c"
+            "${CMAKE_SOURCE_DIR}/src/tools/sensor_tap.c")
     endif()
     if(ENABLE_IPC)
         list(APPEND TIDY_SRCS

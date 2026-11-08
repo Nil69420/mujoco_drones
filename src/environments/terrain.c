@@ -31,12 +31,12 @@ static double value_noise(double x, double y, uint32_t seed) {
     int32_t iy = (int32_t)fy;
     double tx = smooth(x - fx);
     double ty = smooth(y - fy);
-    double a = lattice(ix, iy, seed);
-    double b = lattice(ix + 1, iy, seed);
-    double c = lattice(ix, iy + 1, seed);
+    double v00 = lattice(ix, iy, seed);
+    double v10 = lattice(ix + 1, iy, seed);
+    double v01 = lattice(ix, iy + 1, seed);
     double d = lattice(ix + 1, iy + 1, seed);
-    double top = a + (b - a) * tx;
-    double bottom = c + (d - c) * tx;
+    double top = v00 + (v10 - v00) * tx;
+    double bottom = v01 + (d - v01) * tx;
     return top + (bottom - top) * ty;
 }
 
@@ -45,11 +45,11 @@ static double fbm(const biome_terrain_t *t, unsigned seed, double x, double y) {
     double amp = 1.0;
     double norm = 0.0;
     double freq = 1.0 / t->wavelength_m;
-    for (int o = 0; o < t->octaves; o++) {
-        double n = value_noise(x * freq, y * freq, seed + (unsigned)o * 7919U);
+    for (int octave = 0; octave < t->octaves; octave++) {
+        double n = value_noise(x * freq, y * freq, seed + (unsigned)octave * 7919U);
         if (t->ridged > 0.0) {
-            double r = 1.0 - fabs(n);
-            n = (1.0 - t->ridged) * n + t->ridged * (2.0 * r * r - 1.0);
+            double ridge = 1.0 - fabs(n);
+            n = (1.0 - t->ridged) * n + t->ridged * (2.0 * ridge * ridge - 1.0);
         }
         sum += amp * n;
         norm += amp;
@@ -73,12 +73,12 @@ double biome_terrain_height(const biome_terrain_t *t, unsigned seed, double x, d
                            0.4 * sin(0.8 * k * y + 1.3 + 0.5 * sin(0.2 * k * x)));
     }
     if (t->pad_radius_m > 0.0) {
-        double r = sqrt(x * x + y * y);
+        double radius = sqrt(x * x + y * y);
         double blend = 0.0;
-        if (r <= t->pad_radius_m) {
+        if (radius <= t->pad_radius_m) {
             blend = 1.0;
-        } else if (r < 2.0 * t->pad_radius_m) {
-            blend = 1.0 - smooth((r - t->pad_radius_m) / t->pad_radius_m);
+        } else if (radius < 2.0 * t->pad_radius_m) {
+            blend = 1.0 - smooth((radius - t->pad_radius_m) / t->pad_radius_m);
         }
         h = h * (1.0 - blend);
     }

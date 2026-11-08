@@ -41,60 +41,60 @@ static void queue_push(gnss_model_t *m, const gnss_sample_t *s) {
 
 static void make_sample(gnss_model_t *m, double t_s, const double pos[3], const double vel[3],
                         const gnss_env_t *env) {
-    const gnss_profile_t *p = m->profile;
-    gnss_sample_t s;
-    memset(&s, 0, sizeof(s));
-    s.stamp_s = t_s;
+    const gnss_profile_t *prof = m->profile;
+    gnss_sample_t smp;
+    memset(&smp, 0, sizeof(smp));
+    smp.stamp_s = t_s;
     double vis = env->sky_visibility < 0.0 ? 0.0 : (env->sky_visibility > 1.0 ? 1.0 : env->sky_visibility);
     double mult = env->multipath_scale < 1.0 ? 1.0 : env->multipath_scale;
-    s.satellites = (int)lround(6.0 + 20.0 * vis);
-    s.hdop = 0.6 + 2.4 * (1.0 - vis) + 0.2 * (mult - 1.0);
-    int acquiring = !m->warm_start && t_s < p->ttff_cold_s;
+    smp.satellites = (int)lround(6.0 + 20.0 * vis);
+    smp.hdop = 0.6 + 2.4 * (1.0 - vis) + 0.2 * (mult - 1.0);
+    int acquiring = !m->warm_start && t_s < prof->ttff_cold_s;
     if (acquiring || vis < MIN_VISIBILITY_FIX) {
-        s.fix = acquiring ? GNSS_FIX_NONE : GNSS_FIX_NO_FIX;
-        s.satellites = s.fix == GNSS_FIX_NONE ? 0 : s.satellites / 3;
-        queue_push(m, &s);
+        smp.fix = acquiring ? GNSS_FIX_NONE : GNSS_FIX_NO_FIX;
+        smp.satellites = smp.fix == GNSS_FIX_NONE ? 0 : smp.satellites / 3;
+        queue_push(m, &smp);
         return;
     }
-    double sigma = p->horizontal_cep_m / CEP_TO_SIGMA;
-    s.fix = GNSS_FIX_3D;
+    double sigma = prof->horizontal_cep_m / CEP_TO_SIGMA;
+    smp.fix = GNSS_FIX_3D;
     int use_gm = 1;
-    if (p->rtk_capable && env->rtk_corrections && vis >= RTK_MIN_VISIBILITY && mult <= RTK_MAX_MULTIPATH) {
-        if (m->rtk_clock_s >= p->rtk_converge_s) {
-            s.fix = GNSS_FIX_RTK_FIXED;
-            sigma = p->rtk_cep_m / CEP_TO_SIGMA;
+    if (prof->rtk_capable && env->rtk_corrections && vis >= RTK_MIN_VISIBILITY && mult <= RTK_MAX_MULTIPATH) {
+        if (m->rtk_clock_s >= prof->rtk_converge_s) {
+            smp.fix = GNSS_FIX_RTK_FIXED;
+            sigma = prof->rtk_cep_m / CEP_TO_SIGMA;
             use_gm = 0;
         } else {
-            s.fix = GNSS_FIX_RTK_FLOAT;
+            smp.fix = GNSS_FIX_RTK_FLOAT;
             sigma = RTK_FLOAT_SIGMA_M;
             use_gm = 0;
         }
     }
-    double white_sigma = use_gm ? sigma * sqrt(p->white_fraction) : sigma;
+    double white_sigma = use_gm ? sigma * sqrt(prof->white_fraction) : sigma;
     for (int i = 0; i < 3; i++) {
-        double axis_scale = (i == 2 ? p->vertical_to_horizontal : 1.0) * mult;
+        double axis_scale = (i == 2 ? prof->vertical_to_horizontal : 1.0) * mult;
         double err = noise_gaussian(&m->rng, white_sigma * axis_scale);
         if (use_gm) {
             err += m->gm[i] * mult;
         }
-        s.pos_enu[i] = pos[i] + err;
-        s.vel_enu[i] = vel[i] + noise_gaussian(&m->rng, p->velocity_sigma_ms * mult);
+        smp.pos_enu[i] = pos[i] + err;
+        smp.vel_enu[i] = vel[i] + noise_gaussian(&m->rng, prof->velocity_sigma_ms * mult);
     }
-    queue_push(m, &s);
+    queue_push(m, &smp);
 }
 
 int gnss_model_step(gnss_model_t *model, double t_s, const double truth_pos_enu[3],
                     const double truth_vel_enu[3], const gnss_env_t *env, gnss_sample_t *out) {
-    const gnss_profile_t *p = model->profile;
-    double sigma = p->horizontal_cep_m / CEP_TO_SIGMA;
-    double gm_sigma = sigma * sqrt(1.0 - p->white_fraction);
+    const gnss_profile_t *prof = model->profile;
+    double sigma = prof->horizontal_cep_m / CEP_TO_SIGMA;
+    double gm_sigma = sigma * sqrt(1.0 - prof->white_fraction);
     double drive = sqrt(1.0 - model->decay * model->decay);
     for (int i = 0; i < 3; i++) {
-        double scale = i == 2 ? p->vertical_to_horizontal : 1.0;
+        double scale = i == 2 ? prof->vertical_to_horizontal : 1.0;
         model->gm[i] = model->decay * model->gm[i] +
                        noise_gaussian(&model->rng, gm_sigma * scale * drive);
     }
-    int rtk_ok = p->rtk_capable && env->rtk_corrections &&
+    int rtk_ok = prof->rtk_capable && env->rtk_corrections &&
                  env->sky_visibility >= RTK_MIN_VISIBILITY &&
                  env->multipath_scale <= RTK_MAX_MULTIPATH;
     model->rtk_clock_s = rtk_ok ? model->rtk_clock_s + model->dt : 0.0;
@@ -102,7 +102,7 @@ int gnss_model_step(gnss_model_t *model, double t_s, const double truth_pos_enu[
         make_sample(model, t_s, truth_pos_enu, truth_vel_enu, env);
         model->next_sample_s += model->period_s;
     }
-    if (model->count > 0 && t_s - model->queue[model->head].stamp_s + 1e-9 >= p->latency_s) {
+    if (model->count > 0 && t_s - model->queue[model->head].stamp_s + 1e-9 >= prof->latency_s) {
         *out = model->queue[model->head];
         model->head = (model->head + 1) % GNSS_QUEUE;
         model->count--;

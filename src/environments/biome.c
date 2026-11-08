@@ -23,12 +23,12 @@ static int add_ground(mjSpec *spec, mjsBody *world, const biome_profile_t *p, un
     }
     double lo = 1e30;
     double hi = -1e30;
-    for (int r = 0; r < n; r++) {
-        for (int c = 0; c < n; c++) {
-            double x = -t->half_extent_m + 2.0 * t->half_extent_m * (double)c / (double)(n - 1);
-            double y = -t->half_extent_m + 2.0 * t->half_extent_m * (double)r / (double)(n - 1);
+    for (int row = 0; row < n; row++) {
+        for (int col = 0; col < n; col++) {
+            double x = -t->half_extent_m + 2.0 * t->half_extent_m * (double)col / (double)(n - 1);
+            double y = -t->half_extent_m + 2.0 * t->half_extent_m * (double)row / (double)(n - 1);
             double h = biome_terrain_height(t, seed, x, y);
-            heights[(size_t)r * (size_t)n + (size_t)c] = h;
+            heights[(size_t)row * (size_t)n + (size_t)col] = h;
             lo = h < lo ? h : lo;
             hi = h > hi ? h : hi;
         }
@@ -52,16 +52,16 @@ static int add_ground(mjSpec *spec, mjsBody *world, const biome_profile_t *p, un
     free(data);
     free(heights);
 
-    mjsGeom *g = mjs_addGeom(world, NULL);
-    mjs_setName(g->element, "env_ground");
-    g->type = mjGEOM_HFIELD;
-    mjs_setString(g->hfieldname, "env_terrain");
-    g->pos[2] = lo;
-    g->friction[0] = p->friction;
-    g->friction[1] = p->friction;
-    g->friction[2] = 0.02;
+    mjsGeom *geom = mjs_addGeom(world, NULL);
+    mjs_setName(geom->element, "env_ground");
+    geom->type = mjGEOM_HFIELD;
+    mjs_setString(geom->hfieldname, "env_terrain");
+    geom->pos[2] = lo;
+    geom->friction[0] = p->friction;
+    geom->friction[1] = p->friction;
+    geom->friction[2] = 0.02;
     for (int i = 0; i < 4; i++) {
-        g->rgba[i] = p->ground_rgba[i];
+        geom->rgba[i] = p->ground_rgba[i];
     }
     return 0;
 }
@@ -83,17 +83,17 @@ static void add_water(mjsBody *world, const biome_profile_t *p) {
     if (p->water_rgba[3] <= 0.0F) {
         return;
     }
-    mjsGeom *g = mjs_addGeom(world, NULL);
-    mjs_setName(g->element, "env_water");
-    g->type = mjGEOM_BOX;
-    g->size[0] = p->terrain.half_extent_m;
-    g->size[1] = p->terrain.half_extent_m;
-    g->size[2] = 0.05;
-    g->pos[2] = p->water_level_m - 0.05;
-    g->contype = 0;
-    g->conaffinity = 0;
+    mjsGeom *geom = mjs_addGeom(world, NULL);
+    mjs_setName(geom->element, "env_water");
+    geom->type = mjGEOM_BOX;
+    geom->size[0] = p->terrain.half_extent_m;
+    geom->size[1] = p->terrain.half_extent_m;
+    geom->size[2] = 0.05;
+    geom->pos[2] = p->water_level_m - 0.05;
+    geom->contype = 0;
+    geom->conaffinity = 0;
     for (int i = 0; i < 4; i++) {
-        g->rgba[i] = p->water_rgba[i];
+        geom->rgba[i] = p->water_rgba[i];
     }
 }
 

@@ -26,35 +26,35 @@ static double uniform(ctx_t *c, double lo, double hi) {
 static void jitter_colour(ctx_t *c, const float base[4], float out[4]) {
     double k = uniform(c, 0.88, 1.12);
     for (int i = 0; i < 3; i++) {
-        double v = (double)base[i] * k;
-        out[i] = (float)(v > 1.0 ? 1.0 : v);
+        double val = (double)base[i] * k;
+        out[i] = (float)(val > 1.0 ? 1.0 : val);
     }
     out[3] = base[3];
 }
 
 static mjsGeom *add_geom(ctx_t *c, const char *part, mjtGeom type, const double pos[3],
                          const double size[3], const float rgba[4], int collide, double yaw) {
-    mjsGeom *g = mjs_addGeom(c->world, NULL);
+    mjsGeom *geom = mjs_addGeom(c->world, NULL);
     char name[64];
     snprintf(name, sizeof(name), "env_%d_%d_%s", c->rule_index, c->serial, part);
-    mjs_setName(g->element, name);
-    g->type = type;
+    mjs_setName(geom->element, name);
+    geom->type = type;
     for (int i = 0; i < 3; i++) {
-        g->pos[i] = pos[i];
-        g->size[i] = size[i];
+        geom->pos[i] = pos[i];
+        geom->size[i] = size[i];
     }
     for (int i = 0; i < 4; i++) {
-        g->rgba[i] = rgba[i];
+        geom->rgba[i] = rgba[i];
     }
     if (!collide) {
-        g->contype = 0;
-        g->conaffinity = 0;
+        geom->contype = 0;
+        geom->conaffinity = 0;
     }
-    g->quat[0] = cos(0.5 * yaw);
-    g->quat[1] = 0.0;
-    g->quat[2] = 0.0;
-    g->quat[3] = sin(0.5 * yaw);
-    return g;
+    geom->quat[0] = cos(0.5 * yaw);
+    geom->quat[1] = 0.0;
+    geom->quat[2] = 0.0;
+    geom->quat[3] = sin(0.5 * yaw);
+    return geom;
 }
 
 static void tree(ctx_t *c, double x, double y, double h, double s, const float rgba[4], int kind) {
@@ -156,7 +156,7 @@ static double road_pitch(const biome_profile_t *p) {
 static int place_free(ctx_t *c, const biome_scatter_t *r, double *x, double *y, double *h) {
     const biome_terrain_t *t = &c->profile->terrain;
     double ext = t->half_extent_m - EDGE_MARGIN_M;
-    for (int a = 0; a < PLACE_ATTEMPTS; a++) {
+    for (int attempt = 0; attempt < PLACE_ATTEMPTS; attempt++) {
         double px = uniform(c, -ext, ext);
         double py = uniform(c, -ext, ext);
         if (sqrt(px * px + py * py) < CLEAR_RADIUS_M) {
@@ -181,7 +181,7 @@ static int place_lattice(ctx_t *c, double pitch, unsigned char *used, double *x,
     if (cells > MAX_LATTICE) {
         cells = MAX_LATTICE;
     }
-    for (int a = 0; a < PLACE_ATTEMPTS * 4; a++) {
+    for (int attempt = 0; attempt < PLACE_ATTEMPTS * 4; attempt++) {
         int i = (int)uniform(c, 0.0, (double)cells);
         int j = (int)uniform(c, 0.0, (double)cells);
         if (i >= cells || j >= cells || used[i * MAX_LATTICE + j]) {
@@ -202,10 +202,9 @@ static int place_lattice(ctx_t *c, double pitch, unsigned char *used, double *x,
 }
 
 static void place_one(ctx_t *c, const biome_scatter_t *r, double x, double y, double h, double s,
-                      unsigned char *used, double pitch) {
+                      double pitch) {
     float rgba[4];
     jitter_colour(c, r->rgba, rgba);
-    (void)used;
     switch (r->kind) {
     case OBJ_CONIFER:
     case OBJ_BROADLEAF:
@@ -280,32 +279,32 @@ static void place_one(ctx_t *c, const biome_scatter_t *r, double x, double y, do
 
 int biome_scatter(mjsBody *world, const biome_profile_t *profile, unsigned seed, int rule_index,
                   noise_rng_t *rng) {
-    const biome_scatter_t *r = &profile->scatter[rule_index];
-    if (r->count <= 0 || r->min_size <= 0.0 || r->max_size < r->min_size) {
+    const biome_scatter_t *rule = &profile->scatter[rule_index];
+    if (rule->count <= 0 || rule->min_size <= 0.0 || rule->max_size < rule->min_size) {
         return -1;
     }
-    ctx_t c = {world, profile, seed, rule_index, 0, rng};
-    if (r->kind == OBJ_ROAD_GRID) {
-        road_grid(&c, r);
+    ctx_t ctx = {world, profile, seed, rule_index, 0, rng};
+    if (rule->kind == OBJ_ROAD_GRID) {
+        road_grid(&ctx, rule);
         return 0;
     }
     double pitch = road_pitch(profile);
-    int lattice = pitch > 0.0 && (r->kind == OBJ_MIDRISE || r->kind == OBJ_TOWER);
+    int lattice = pitch > 0.0 && (rule->kind == OBJ_MIDRISE || rule->kind == OBJ_TOWER);
     unsigned char used[MAX_LATTICE * MAX_LATTICE];
     memset(used, 0, sizeof(used));
-    for (int i = 0; i < r->count; i++) {
+    for (int i = 0; i < rule->count; i++) {
         double x = 0.0;
         double y = 0.0;
         double h = 0.0;
-        int ok = lattice ? place_lattice(&c, pitch, used, &x, &y, &h) : place_free(&c, r, &x, &y, &h);
-        if (r->kind == OBJ_SHIP) {
-            ok = place_free(&c, r, &x, &y, &h);
+        int ok = lattice ? place_lattice(&ctx, pitch, used, &x, &y, &h) : place_free(&ctx, rule, &x, &y, &h);
+        if (rule->kind == OBJ_SHIP) {
+            ok = place_free(&ctx, rule, &x, &y, &h);
         }
         if (!ok) {
             continue;
         }
-        double s = r->min_size + (r->max_size - r->min_size) * noise_uniform(rng);
-        place_one(&c, r, x, y, h, s, used, lattice ? pitch : 0.0);
+        double size = rule->min_size + (rule->max_size - rule->min_size) * noise_uniform(rng);
+        place_one(&ctx, rule, x, y, h, size, lattice ? pitch : 0.0);
     }
     return 0;
 }

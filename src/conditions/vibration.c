@@ -43,7 +43,7 @@ static void mount_step(vibration_t *vib, const double excitation[3], double dt) 
         steps = MAX_SUBSTEPS;
     }
     double h = dt / (double)steps;
-    for (int n = 0; n < steps; n++) {
+    for (int step = 0; step < steps; step++) {
         for (int i = 0; i < 3; i++) {
             double acc = omega * omega * (excitation[i] - vib->mount_pos[i]) -
                          2.0 * vib->mount_zeta * omega * vib->mount_vel[i];
