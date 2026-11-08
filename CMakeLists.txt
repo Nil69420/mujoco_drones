@@ -120,6 +120,7 @@ add_library(mdmodels STATIC
     src/conditions/thermal.c
     src/conditions/vibration.c
     src/conditions/presets.c
+    src/conditions/aero.c
     src/sensors/models/imu_model.c
     src/sensors/models/imu_profiles.c
     src/sensors/models/gnss_model.c
@@ -277,6 +278,7 @@ if(ENABLE_IPC)
     )
     target_link_directories(sensor_tap PRIVATE ${RENOIR_LIB_DIR})
     target_link_libraries(sensor_tap PRIVATE renoir m)
+    add_test(NAME wind_live COMMAND ${CMAKE_SOURCE_DIR}/tests/wind_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     add_test(NAME sensor_profiles_live COMMAND ${CMAKE_SOURCE_DIR}/tests/sensor_profiles_live.sh ${CMAKE_BINARY_DIR})
     target_compile_definitions(send_command PRIVATE ENABLE_IPC)
 

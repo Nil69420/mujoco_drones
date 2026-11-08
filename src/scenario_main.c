@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#define DEFAULT_DRAG_CD_AREA_M2 0.06
+
 static int compose_scene(scenario_t *scenario, mjModel **out_model,
                          mjSpec **out_scene, char *error, int error_sz) {
     const environment_ops_t *env =
@@ -161,6 +163,20 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
         veh->sensor_cfg.baro_profile = as->baro[0] != '\0' ? as->baro : NULL;
         veh->sensor_cfg.mag_profile = as->mag[0] != '\0' ? as->mag : NULL;
         veh->sensor_cfg.vibration_scale = as->vibration;
+        {
+            const conditions_profile_t *cp = veh->sensor_cfg.weather != NULL
+                                                 ? conditions_find(veh->sensor_cfg.weather) : NULL;
+            if (cp != NULL) {
+                wind_init(&veh->wind, cp, 7001U + (unsigned)i);
+                veh->ambient_temp_c = cp->ambient_temp_c;
+                veh->sea_level_pressure_pa = cp->sea_level_pressure_pa;
+                veh->origin_alt_m = veh->sensor_cfg.gnss_origin_alt;
+                veh->drag_cd_area = as->drag_area > 0.0 ? as->drag_area : DEFAULT_DRAG_CD_AREA_M2;
+                veh->wind_enabled = veh->airframe != NULL && veh->airframe->airframe_class != NULL &&
+                                    strcmp(veh->airframe->airframe_class, "rotor_multicopter") == 0 &&
+                                    (cp->wind_speed_20ft_ms > 0.0 || cp->turbulence_w20_ms > 0.0);
+            }
+        }
         if (vehicle_resolve(veh, model, tp) != 0) {
             fprintf(stderr, "[scenario] vehicle %d resolve failed\n", i);
             return -1;

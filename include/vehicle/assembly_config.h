@@ -21,6 +21,7 @@ typedef struct {
     int has_target;
     int gnss_cold_start;
     int gnss_rtk;
+    double drag_area;
 } vehicle_assembly_spec_t;
 
 #endif

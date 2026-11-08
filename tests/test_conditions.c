@@ -29,6 +29,39 @@ static void test_presets(void) {
     }
 }
 
+static void test_aero_drag(void) {
+    const double rho = 1.2;
+    const double cda = 0.06;
+    const double calm[3] = {0.0, 0.0, 0.0};
+    const double still[3] = {0.0, 0.0, 0.0};
+    double f[3];
+    aero_drag_force(rho, cda, calm, still, f);
+    CHECK_NEAR(f[0], 0.0, 1e-12);
+    const double wind10[3] = {10.0, 0.0, 0.0};
+    aero_drag_force(rho, cda, wind10, still, f);
+    CHECK_NEAR(f[0], 0.5 * rho * cda * 100.0, 1e-9);
+    CHECK_NEAR(f[1], 0.0, 1e-12);
+    const double wind20[3] = {20.0, 0.0, 0.0};
+    double f20[3];
+    aero_drag_force(rho, cda, wind20, still, f20);
+    CHECK_NEAR(f20[0] / f[0], 4.0, 1e-9);
+    const double moving[3] = {10.0, 0.0, 0.0};
+    aero_drag_force(rho, cda, wind10, moving, f);
+    CHECK_NEAR(f[0], 0.0, 1e-12);
+    const double fast[3] = {-8.0, 0.0, 0.0};
+    aero_drag_force(rho, cda, calm, fast, f);
+    CHECK(f[0] > 0.0);
+    const double diag[3] = {3.0, 4.0, 0.0};
+    aero_drag_force(rho, cda, diag, still, f);
+    CHECK_NEAR(f[1] / f[0], 4.0 / 3.0, 1e-9);
+    double enu[3];
+    const double ned[3] = {2.0, 5.0, -1.0};
+    wind_ned_to_enu(ned, enu);
+    CHECK_NEAR(enu[0], 5.0, 1e-12);
+    CHECK_NEAR(enu[1], 2.0, 1e-12);
+    CHECK_NEAR(enu[2], 1.0, 1e-12);
+}
+
 static void test_wind_shear_and_direction(void) {
     conditions_profile_t p = {"t", 15.0, 101325.0, 5.0, PI / 2.0, 0.0, 1.0 / 7.0};
     wind_t w;
@@ -153,6 +186,7 @@ static void test_vibration_transfer(void) {
 int main(void) {
     test_atmosphere();
     test_presets();
+    test_aero_drag();
     test_wind_shear_and_direction();
     test_dryden_statistics();
     test_thermal();

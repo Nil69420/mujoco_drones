@@ -68,6 +68,10 @@ int vibration_init(vibration_t *vib, int rotors, int blades, double rated_rpm,
 void vibration_step(vibration_t *vib, const double *rotor_rpm, double dt, double accel_out[3],
                     double gyro_out[3]);
 
+void aero_drag_force(double air_density, double cd_area_m2, const double wind_world[3],
+                     const double velocity_world[3], double force_out[3]);
+void wind_ned_to_enu(const double ned[3], double enu[3]);
+
 extern const conditions_profile_t CONDITIONS_PRESETS[];
 extern const size_t CONDITIONS_PRESET_COUNT;
 const conditions_profile_t *conditions_find(const char *name);

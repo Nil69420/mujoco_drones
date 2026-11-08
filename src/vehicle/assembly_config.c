@@ -119,6 +119,8 @@ static int handle_key_value(const parse_ctx_t *ctx, parse_state_t *state,
             snprintf(veh->imu, sizeof(veh->imu), "%s", value);
         } else if (strcmp(key, "gnss") == 0) {
             snprintf(veh->gnss, sizeof(veh->gnss), "%s", value);
+        } else if (strcmp(key, "drag_area") == 0) {
+            veh->drag_area = strtod(value, NULL);
         } else if (strcmp(key, "gnss_rtk") == 0) {
             veh->gnss_rtk = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
         } else if (strcmp(key, "gnss_start") == 0) {
