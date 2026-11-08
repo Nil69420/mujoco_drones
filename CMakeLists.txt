@@ -65,8 +65,6 @@ if(ENABLE_IPC)
 
     if(ENABLE_FOXGLOVE)
         list(APPEND SOURCES
-            src/foxglove/sha1.c
-            src/foxglove/base64.c
             src/foxglove/ws.c
             src/foxglove/proto.c
             src/foxglove/serialize.c
@@ -132,6 +130,10 @@ add_library(mdmodels STATIC
     src/sensors/models/mag_profiles.c
     src/sensors/models/range_model.c
     src/sensors/models/range_profiles.c
+    src/foxglove/ws_proto.c
+    src/foxglove/ops.c
+    src/foxglove/sha1.c
+    src/foxglove/base64.c
 )
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -161,6 +163,12 @@ target_include_directories(test_misc_models PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_misc_models PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_misc_models PRIVATE mdmodels)
 add_test(NAME misc_models COMMAND test_misc_models)
+
+add_executable(test_ws_proto tests/test_ws_proto.c)
+target_include_directories(test_ws_proto PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_ws_proto PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ws_proto PRIVATE mdmodels)
+add_test(NAME ws_proto COMMAND test_ws_proto)
 
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
@@ -280,7 +288,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models)
+    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -290,7 +298,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models)
+    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
