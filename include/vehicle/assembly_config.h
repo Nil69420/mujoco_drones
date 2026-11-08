@@ -12,6 +12,15 @@ typedef struct {
     double spawn_pos[3];
     double spawn_yaw;
     double spawn_speed;
+    char imu[ASSEMBLY_MAX_NAME_LEN];
+    char gnss[ASSEMBLY_MAX_NAME_LEN];
+    char baro[ASSEMBLY_MAX_NAME_LEN];
+    char mag[ASSEMBLY_MAX_NAME_LEN];
+    double vibration;
+    double target_pos[3];
+    int has_target;
+    int gnss_cold_start;
+    int gnss_rtk;
 } vehicle_assembly_spec_t;
 
 #endif

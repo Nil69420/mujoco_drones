@@ -5,11 +5,13 @@
 
 extern const estimator_ops_t ground_truth_estimator_ops;
 extern const estimator_ops_t complementary_filter_ops;
+extern const estimator_ops_t kf_ins_ops;
 
 static const estimator_ops_t *const *estimator_table(int *count) {
     static const estimator_ops_t *const table[] = {
         &ground_truth_estimator_ops,
         &complementary_filter_ops,
+        &kf_ins_ops,
     };
     *count = (int)(sizeof(table) / sizeof(table[0]));
     return table;

@@ -52,6 +52,8 @@ static int handle_key_value(const parse_ctx_t *ctx, parse_state_t *state,
         } else if (strcmp(key, "environment_seed") == 0) {
             out->environment_seed = (unsigned)strtoul(value, NULL, 10);
             state->have_seed = 1;
+        } else if (strcmp(key, "weather") == 0) {
+            snprintf(out->weather, sizeof(out->weather), "%s", value);
         } else if (strcmp(key, "duration") == 0) {
             out->duration_s = strtod(value, NULL);
             state->have_duration = 1;
@@ -93,10 +95,47 @@ static int handle_key_value(const parse_ctx_t *ctx, parse_state_t *state,
             return -1;
         spawn_ok:
             ;
+        } else if (strcmp(key, "target") == 0) {
+            char *end = NULL;
+            const char *cursor = value;
+            for (int axis = 0; axis < 3; axis++) {
+                veh->target_pos[axis] = strtod(cursor, &end);
+                if (end == cursor) {
+                    fprintf(stderr, "%s:%d: target needs 3 numbers\n", ctx->path, ctx->line);
+                    return -1;
+                }
+                cursor = end;
+            }
+            if (*trim((char *)cursor) != '\0') {
+                fprintf(stderr, "%s:%d: target needs 3 numbers\n", ctx->path, ctx->line);
+                return -1;
+            }
+            veh->has_target = 1;
         } else if (strcmp(key, "yaw") == 0) {
             veh->spawn_yaw = strtod(value, NULL);
         } else if (strcmp(key, "speed") == 0) {
             veh->spawn_speed = strtod(value, NULL);
+        } else if (strcmp(key, "imu") == 0) {
+            snprintf(veh->imu, sizeof(veh->imu), "%s", value);
+        } else if (strcmp(key, "gnss") == 0) {
+            snprintf(veh->gnss, sizeof(veh->gnss), "%s", value);
+        } else if (strcmp(key, "gnss_rtk") == 0) {
+            veh->gnss_rtk = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+        } else if (strcmp(key, "gnss_start") == 0) {
+            if (strcmp(value, "cold") == 0) {
+                veh->gnss_cold_start = 1;
+            } else if (strcmp(value, "warm") == 0) {
+                veh->gnss_cold_start = 0;
+            } else {
+                fprintf(stderr, "%s:%d: gnss_start must be warm or cold\n", ctx->path, ctx->line);
+                return -1;
+            }
+        } else if (strcmp(key, "baro") == 0) {
+            snprintf(veh->baro, sizeof(veh->baro), "%s", value);
+        } else if (strcmp(key, "mag") == 0) {
+            snprintf(veh->mag, sizeof(veh->mag), "%s", value);
+        } else if (strcmp(key, "vibration") == 0) {
+            veh->vibration = strtod(value, NULL);
         } else {
             fprintf(stderr, "%s:%d: warning: unknown key '%s'\n",
                     ctx->path, ctx->line, key);

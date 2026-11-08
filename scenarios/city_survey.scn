@@ -1,0 +1,20 @@
+[scenario]
+environment = city
+environment_seed = 11
+weather = windy_gusty
+duration = 10.0
+
+[vehicle survey0]
+airframe = quad_x
+controller = pd_multicopter
+estimator = kf_ins
+localization = gnss
+spawn = 0.0 0.0 0.3
+target = 0.0 0.0 8.0
+yaw = 0.0
+imu = adis16470
+gnss = zed_f9p
+gnss_rtk = true
+baro = dps310
+mag = rm3100
+vibration = 1.0

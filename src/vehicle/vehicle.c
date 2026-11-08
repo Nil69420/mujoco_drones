@@ -53,7 +53,7 @@ int vehicle_resolve(vehicle_t *vehicle, const mjModel *model,
         }
     }
 
-    sensor_config_t scfg = sensor_default_config();
+    sensor_config_t scfg = vehicle->sensor_cfg_set ? vehicle->sensor_cfg : sensor_default_config();
     scfg.enable.camera = false;
 
     char topic_root[VEHICLE_MAX_PREFIX_LEN];
@@ -79,6 +79,10 @@ void vehicle_step(vehicle_t *vehicle, const mjModel *model, mjData *data,
 
     sensor_snapshot_t snap;
     memset(&snap, 0, sizeof(snap));
+    snap.has_origin = true;
+    snap.origin_lat_deg = vehicle->sensors.config.gnss_origin_lat;
+    snap.origin_lon_deg = vehicle->sensors.config.gnss_origin_lon;
+    snap.origin_alt_m = vehicle->sensors.config.gnss_origin_alt;
     if (vehicle->sensors.config.enable.imu &&
         sample_is_fresh(&vehicle->last_imu_seq,
                         vehicle->sensors.imu_latest.header.sequence)) {
@@ -113,6 +117,15 @@ void vehicle_step(vehicle_t *vehicle, const mjModel *model, mjData *data,
 
     actuator_command_t out;
     memset(&out, 0, sizeof(out));
+    if (!est.valid) {
+        for (int i = 0; i < VEHICLE_MAX_ACTUATOR_CHANNELS; i++) {
+            int id = vehicle->actuator_index[i];
+            if (id >= 0 && id < model->nu) {
+                data->ctrl[id] = 0.0;
+            }
+        }
+        return;
+    }
     if (vehicle->controller.ops && vehicle->controller.ops->update) {
         vehicle->controller.ops->update(&vehicle->controller, &est,
                                         &vehicle->target, dt, &out);

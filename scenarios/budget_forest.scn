@@ -1,0 +1,17 @@
+[scenario]
+environment = forest
+environment_seed = 3
+duration = 10.0
+
+[vehicle cheap0]
+airframe = quad_x
+controller = pd_multicopter
+estimator = kf_ins
+localization = gnss
+spawn = 0.0 0.0 0.3
+target = 0.0 0.0 6.0
+yaw = 0.0
+imu = mpu6050
+gnss = neo_m8n
+baro = ms5611
+mag = hmc5883l

@@ -43,6 +43,7 @@ static int resolve_site_id(const mjModel *m, const char *prefix,
 }
 
 #define CAMERA_RING_SLOTS 4U
+#define MAG_DEFAULT_RATE_HZ 100.0
 #define SENSOR_ROTOR_RATED_RPM 8000.0
 #define SENSOR_VIBRATION_BASE_MS2 0.6
 #define SENSOR_MOUNT_HZ 45.0
@@ -91,7 +92,7 @@ sensor_config_t sensor_default_config(void) {
     cfg.mag_field_enu_ut[1]    = 21.4;
     cfg.mag_field_enu_ut[2]    = -42.3;
     cfg.camera_exposure_s      = 0.004;
-    cfg.mag_rate               = 100.0;
+    cfg.mag_rate               = 0.0;
     cfg.sky_visibility         = 1.0;
     cfg.multipath_scale        = 1.0;
     cfg.ambient_temp_c         = 15.0;
@@ -337,12 +338,17 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     mgr->sensor_temp_c = config->ambient_temp_c;
     if (config->mag_profile != NULL) {
         const mag_profile_t *pr = mag_profile_find(config->mag_profile);
-        if (pr == NULL || mag_model_init(&mgr->mag_model, pr, config->mag_rate, 1004) != 0) {
+        double mag_rate = config->mag_rate;
+        if (pr != NULL && mag_rate <= 0.0) {
+            mag_rate = pr->max_rate_hz < MAG_DEFAULT_RATE_HZ ? pr->max_rate_hz : MAG_DEFAULT_RATE_HZ;
+            mgr->config.mag_rate = mag_rate;
+        }
+        if (pr == NULL || mag_model_init(&mgr->mag_model, pr, mag_rate, 1004) != 0) {
             fprintf(stderr, "[sensors] unknown or unusable magnetometer profile '%s'\n",
                     config->mag_profile);
             return -1;
         }
-        mgr->mag_every = (int)lround(config->imu_rate / config->mag_rate);
+        mgr->mag_every = (int)lround(config->imu_rate / mgr->config.mag_rate);
         if (mgr->mag_every < 1) mgr->mag_every = 1;
         mgr->mag_count = 0;
         mgr->use_mag_model = true;
@@ -351,8 +357,10 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
         int ok = 1;
         char nm[32];
         for (int i = 0; i < 4; i++) {
+            char full[64];
             snprintf(nm, sizeof(nm), "thrust_%d", i);
-            mgr->act_thrust[i] = mj_name2id(model, mjOBJ_ACTUATOR, nm);
+            build_name(full, sizeof(full), topic_prefix, nm);
+            mgr->act_thrust[i] = mj_name2id(model, mjOBJ_ACTUATOR, full);
             ok = ok && mgr->act_thrust[i] >= 0;
         }
         if (!ok || vibration_init(&mgr->vibration, 4, 2, SENSOR_ROTOR_RATED_RPM,
@@ -381,6 +389,7 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
                     config->gnss_profile, config->gnss_rate);
             return -1;
         }
+        mgr->gnss_model.warm_start = config->gnss_cold_start ? 0 : 1;
         mgr->use_gnss_model = true;
     }
     if (config->baro_profile != NULL) {
@@ -497,7 +506,8 @@ static void step_gnss_model(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns
     static const double R_EARTH = 6371000.0;
     double lat0_rad = mgr->config.gnss_origin_lat * M_PI / 180.0;
     sensor_gnss_t msg = {0};
-    msg.header.timestamp_ns = t_ns;
+    msg.header.timestamp_ns = smp.stamp_s > 0.0 ? (uint64_t)(smp.stamp_s * 1e9) : 1U;
+    (void)t_ns;
     msg.header.sequence     = mgr->seq_gnss++;
     msg.header.sensor_id    = SENSOR_ID_GNSS;
     msg.latitude  = mgr->config.gnss_origin_lat + (smp.pos_enu[1] / R_EARTH) * (180.0 / M_PI);
@@ -535,7 +545,7 @@ static void read_gnss(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
                3 * sizeof(double));
     }
 
-    msg.fix_type       = 2;
+    msg.fix_type       = 3;
     msg.num_satellites = 12;
     msg.hdop           = 1.2;
 

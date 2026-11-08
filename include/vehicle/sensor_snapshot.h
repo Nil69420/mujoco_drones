@@ -11,6 +11,10 @@ typedef struct {
     bool has_imu;
     bool has_gnss;
     bool has_baro;
+    bool has_origin;
+    double origin_lat_deg;
+    double origin_lon_deg;
+    double origin_alt_m;
 } sensor_snapshot_t;
 
 #endif

@@ -21,6 +21,8 @@ typedef struct {
     estimator_t    estimator;
     localization_t localization;
     sensor_mgr_t   sensors;
+    sensor_config_t sensor_cfg;
+    int sensor_cfg_set;
     int actuator_index[VEHICLE_MAX_ACTUATOR_CHANNELS]; /* mj_name2id result per channel */
     setpoint_t target;
     uint32_t last_imu_seq;

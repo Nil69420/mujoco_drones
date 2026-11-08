@@ -49,8 +49,9 @@ static void make_sample(gnss_model_t *m, double t_s, const double pos[3], const 
     double mult = env->multipath_scale < 1.0 ? 1.0 : env->multipath_scale;
     s.satellites = (int)lround(6.0 + 20.0 * vis);
     s.hdop = 0.6 + 2.4 * (1.0 - vis) + 0.2 * (mult - 1.0);
-    if (t_s < p->ttff_cold_s || vis < MIN_VISIBILITY_FIX) {
-        s.fix = t_s < p->ttff_cold_s ? GNSS_FIX_NONE : GNSS_FIX_NO_FIX;
+    int acquiring = !m->warm_start && t_s < p->ttff_cold_s;
+    if (acquiring || vis < MIN_VISIBILITY_FIX) {
+        s.fix = acquiring ? GNSS_FIX_NONE : GNSS_FIX_NO_FIX;
         s.satellites = s.fix == GNSS_FIX_NONE ? 0 : s.satellites / 3;
         queue_push(m, &s);
         return;

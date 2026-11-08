@@ -5,6 +5,7 @@
 #include "vehicle/controller_ops.h"
 #include "vehicle/estimator_ops.h"
 #include "vehicle/localization_ops.h"
+#include "environments/biome.h"
 #include "environments/environment_ops.h"
 #include "transport/transport_renoir.h"
 #include "setpoint.h"
@@ -136,11 +137,30 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
             return -1;
         }
 
-        veh->target.x = as->spawn_pos[0];
-        veh->target.y = as->spawn_pos[1];
-        veh->target.z = as->spawn_pos[2];
+        veh->target.x = as->has_target ? as->target_pos[0] : as->spawn_pos[0];
+        veh->target.y = as->has_target ? as->target_pos[1] : as->spawn_pos[1];
+        veh->target.z = as->has_target ? as->target_pos[2] : as->spawn_pos[2];
         veh->target.yaw = as->spawn_yaw;
 
+        veh->sensor_cfg = sensor_default_config();
+        veh->sensor_cfg_set = 1;
+        const environment_ops_t *env = environment_registry_find(scenario->environment);
+        if (env != NULL && env->biome != NULL) {
+            const biome_climate_t *cl = &env->biome->climate;
+            veh->sensor_cfg.weather = cl->default_weather;
+            veh->sensor_cfg.sky_visibility = cl->sky_visibility;
+            veh->sensor_cfg.multipath_scale = cl->multipath_scale;
+        }
+        if (scenario->weather[0] != '\0') {
+            veh->sensor_cfg.weather = scenario->weather;
+        }
+        veh->sensor_cfg.imu_profile = as->imu[0] != '\0' ? as->imu : NULL;
+        veh->sensor_cfg.gnss_profile = as->gnss[0] != '\0' ? as->gnss : NULL;
+        veh->sensor_cfg.gnss_cold_start = as->gnss_cold_start != 0;
+        veh->sensor_cfg.rtk_corrections = as->gnss_rtk;
+        veh->sensor_cfg.baro_profile = as->baro[0] != '\0' ? as->baro : NULL;
+        veh->sensor_cfg.mag_profile = as->mag[0] != '\0' ? as->mag : NULL;
+        veh->sensor_cfg.vibration_scale = as->vibration;
         if (vehicle_resolve(veh, model, tp) != 0) {
             fprintf(stderr, "[scenario] vehicle %d resolve failed\n", i);
             return -1;

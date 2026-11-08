@@ -59,6 +59,7 @@ typedef struct {
 
     const char *imu_profile;
     const char *gnss_profile;
+    bool gnss_cold_start;
     const char *baro_profile;
     const char *mag_profile;
     double mag_rate;

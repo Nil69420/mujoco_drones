@@ -31,9 +31,9 @@ static void print_usage(const char *prog) {
     printf("  --cam-fps F      Camera FPS (default 8.0)\n");
     printf("  --scenario FILE  Run a composable multi-vehicle scenario\n");
     printf("  --imu NAME       IMU profile (see --list-sensors); --imu-rate HZ (default 1000)\n");
-    printf("  --gnss NAME      GNSS profile; --gnss-rate HZ (default 10)\n");
+    printf("  --gnss NAME      GNSS profile; --gnss-rate HZ (default 10); --gnss-cold starts without a fix; --gnss-rtk enables RTK corrections\n");
     printf("  --baro NAME      Barometer profile; --baro-rate HZ (default 50)\n");
-    printf("  --mag NAME       Magnetometer profile; --mag-rate HZ (default 100)\n");
+    printf("  --mag NAME       Magnetometer profile; --mag-rate HZ (default min(100, profile max))\n");
     printf("  --weather NAME   Weather preset (ambient temperature and pressure)\n");
     printf("  --vibration S    Motor vibration scale (0 = off, 1 = nominal)\n");
     printf("  --cam-mono        Publish a mono8 image through the camera sensor model\n");
@@ -86,6 +86,8 @@ typedef struct {
     const char *cam_profile;
     bool        cam_mono;
     double      mag_rate;
+    bool        gnss_cold;
+    bool        gnss_rtk;
     const char *weather;
     double      vibration;
     double      imu_rate;
@@ -133,7 +135,6 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
     args->cam_fps    = 8.0;
     args->imu_rate   = 1000.0;
     args->gnss_rate  = 10.0;
-    args->mag_rate   = 100.0;
     args->baro_rate  = 50.0;
     args->scenario_path = NULL;
 #endif
@@ -152,6 +153,8 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
         else if (!strcmp(argv[i], "--gnss")       && i+1 < argc) { args->gnss_name = argv[++i]; }
         else if (!strcmp(argv[i], "--baro")       && i+1 < argc) { args->baro_name = argv[++i]; }
         else if (!strcmp(argv[i], "--mag")        && i+1 < argc) { args->mag_name = argv[++i]; }
+        else if (!strcmp(argv[i], "--gnss-cold")) { args->gnss_cold = true; }
+        else if (!strcmp(argv[i], "--gnss-rtk")) { args->gnss_rtk = true; }
         else if (!strcmp(argv[i], "--mag-rate")   && i+1 < argc) { args->mag_rate = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--cam-profile") && i+1 < argc) { args->cam_profile = argv[++i]; args->cam_mono = true; }
         else if (!strcmp(argv[i], "--cam-mono")) { args->cam_mono = true; }
@@ -304,6 +307,8 @@ int main(int argc, char **argv) {
             scfg.camera_rate    = args.cam_fps;
             scfg.imu_profile    = args.imu_name;
             scfg.gnss_profile   = args.gnss_name;
+            scfg.gnss_cold_start = args.gnss_cold;
+            scfg.rtk_corrections = args.gnss_rtk ? 1 : 0;
             scfg.baro_profile   = args.baro_name;
             scfg.mag_profile    = args.mag_name;
             scfg.mag_rate       = args.mag_rate;

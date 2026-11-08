@@ -63,6 +63,7 @@ typedef struct {
     gnss_sample_t queue[GNSS_QUEUE];
     size_t head;
     size_t count;
+    int warm_start;
 } gnss_model_t;
 
 int gnss_model_init(gnss_model_t *model, const gnss_profile_t *profile, double rate_hz,

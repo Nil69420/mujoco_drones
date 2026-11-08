@@ -9,6 +9,7 @@ enum { SCENARIO_MAX_VEHICLES = 16, SCENARIO_MAX_NAME_LEN = 64 };
 typedef struct {
     char environment[SCENARIO_MAX_NAME_LEN];
     unsigned environment_seed;
+    char weather[SCENARIO_MAX_NAME_LEN];
     double duration_s;
     vehicle_assembly_spec_t vehicles[SCENARIO_MAX_VEHICLES];
     int vehicle_count;

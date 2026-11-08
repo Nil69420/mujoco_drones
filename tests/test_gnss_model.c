@@ -52,6 +52,23 @@ static void test_cold_start_and_rate(void) {
     CHECK(outputs >= 1195 && outputs <= 1200);
 }
 
+static void test_warm_start(void) {
+    gnss_model_t m;
+    CHECK(gnss_model_init(&m, gnss_profile_find("zed_f9p"), 10.0, DT, 8) == 0);
+    m.warm_start = 1;
+    gnss_env_t env = open_sky();
+    const double pos[3] = {1.0, 2.0, 3.0};
+    const double vel[3] = {0.0, 0.0, 0.0};
+    gnss_sample_t s;
+    int first_fix_ms = -1;
+    for (int i = 0; i < 2000 && first_fix_ms < 0; i++) {
+        if (gnss_model_step(&m, i * DT, pos, vel, &env, &s) && s.fix >= GNSS_FIX_3D) {
+            first_fix_ms = i;
+        }
+    }
+    CHECK(first_fix_ms >= 0 && first_fix_ms < 200);
+}
+
 static void test_accuracy_and_correlation(void) {
     const gnss_profile_t *p = gnss_profile_find("neo_m8n");
     gnss_model_t m;
@@ -240,6 +257,7 @@ static void test_determinism(void) {
 int main(void) {
     test_limits();
     test_cold_start_and_rate();
+    test_warm_start();
     test_latency();
     test_determinism();
     test_rtk();
