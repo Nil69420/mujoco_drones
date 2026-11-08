@@ -87,6 +87,7 @@ if(ENABLE_IPC)
         src/vehicle/estimators/ground_truth.c
         src/vehicle/estimators/complementary_filter.c
         src/vehicle/estimators/kf_ins.c
+        src/vehicle/estimators/kf_axis.c
         src/vehicle/localization_registry.c
         src/vehicle/localization/ground_truth.c
         src/vehicle/localization/gnss.c
@@ -212,6 +213,7 @@ add_test(NAME biomes COMMAND test_biomes WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(test_kf_ins tests/test_kf_ins.c
     src/vehicle/estimators/kf_ins.c
+    src/vehicle/estimators/kf_axis.c
     src/vehicle/estimators/ground_truth.c
     src/vehicle/estimators/complementary_filter.c
     src/vehicle/estimator_registry.c)

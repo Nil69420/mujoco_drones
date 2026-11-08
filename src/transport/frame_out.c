@@ -52,16 +52,20 @@ void frame_out_close(frame_out_t *out) {
 }
 
 void frame_out_name(char *buf, size_t cap, const char *prefix, const char *suffix) {
-    const char *p = (prefix != NULL && prefix[0] != '\0') ? prefix : "/drone";
-    while (*p == '/') {
-        p++;
+    const char *src = (prefix != NULL && prefix[0] != '\0') ? prefix : "/drone";
+    while (*src == '/') {
+        src++;
     }
-    size_t n = 0;
-    for (; *p != '\0' && n + 1 < cap; p++) {
-        buf[n++] = *p == '/' ? '_' : *p;
+    size_t len = 0;
+    for (; *src != '\0' && len + 1 < cap; src++) {
+        if (*src == '/') {
+            buf[len++] = '_';
+        } else {
+            buf[len++] = *src;
+        }
     }
-    for (const char *s = suffix; *s != '\0' && n + 1 < cap; s++) {
-        buf[n++] = *s;
+    for (const char *tail = suffix; *tail != '\0' && len + 1 < cap; tail++) {
+        buf[len++] = *tail;
     }
-    buf[n] = '\0';
+    buf[len] = '\0';
 }

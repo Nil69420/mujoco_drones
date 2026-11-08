@@ -45,7 +45,7 @@ int camera_egl_open(camera_egl_t *egl) {
                             EGL_GREEN_SIZE,     8,               EGL_BLUE_SIZE,  8,
                             EGL_DEPTH_SIZE,     24,              EGL_RENDERABLE_TYPE,
                             EGL_OPENGL_BIT,     EGL_NONE};
-    EGLConfig config;
+    EGLConfig config = NULL;
     EGLint found = 0;
     if (!eglChooseConfig(display, attrs, &config, 1, &found) || found < 1 ||
         !eglBindAPI(EGL_OPENGL_API)) {

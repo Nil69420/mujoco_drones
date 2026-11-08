@@ -8,6 +8,80 @@
 #include <stdlib.h>
 #include <string.h>
 
+enum { CAMERA_SEED = 1006, CAMERA_NAME_LEN = 96 };
+
+#define CAMERA_RATE_EPSILON 1e-9
+
+static int camera_models_ready(sensor_mgr_t *mgr, const sensor_config_t *cfg) {
+    if (cfg->camera_headless && camera_egl_open(&mgr->egl) != 0) {
+        fprintf(stderr, "[sensors] ERROR: headless camera unavailable, disabling camera\n");
+        mgr->config.enable.camera = false;
+        return 0;
+    }
+    if (!cfg->camera_mono) {
+        return 0;
+    }
+    const char *name = cfg->camera_profile != NULL ? cfg->camera_profile : "ar0234";
+    const camera_profile_t *prf = camera_profile_find(name);
+    if (prf == NULL || camera_model_init(&mgr->cam_model, prf, cfg->camera_width,
+                                         cfg->camera_height, CAMERA_SEED) != 0) {
+        fprintf(stderr, "[sensors] ERROR: camera profile '%s' unusable at %ux%u\n", name,
+                (unsigned)cfg->camera_width, (unsigned)cfg->camera_height);
+        return -1;
+    }
+    if (cfg->camera_rate > prf->max_fps + CAMERA_RATE_EPSILON) {
+        fprintf(stderr, "[sensors] ERROR: camera rate %.0f fps exceeds the %s limit of %.0f\n",
+                cfg->camera_rate, prf->name, prf->max_fps);
+        camera_model_free(&mgr->cam_model);
+        return -1;
+    }
+    mgr->use_cam_model = true;
+    return 0;
+}
+
+static void camera_buffers(sensor_mgr_t *mgr, const sensor_config_t *cfg, const char *prefix) {
+    size_t pixels = (size_t)cfg->camera_width * cfg->camera_height;
+    size_t rgb_total = sizeof(sensor_camera_rgb_hdr_t) + pixels * 3U;
+    mgr->rgb_buf = malloc(rgb_total);
+    mgr->depth_buf = mgr->use_cam_model ? NULL : malloc(pixels * sizeof(float));
+    char ring[CAMERA_NAME_LEN];
+    frame_out_name(ring, sizeof(ring), prefix, "_camera_frame");
+    size_t ring_frame = sizeof(sensor_camera_rgb_hdr_t) + pixels * (mgr->use_cam_model ? 1U : 3U);
+    mgr->cam_out_open = frame_out_open(&mgr->cam_out, ring, ring_frame, CAMERA_RING_SLOTS) == 0;
+    if (mgr->rgb_buf == NULL || (mgr->depth_buf == NULL && !mgr->use_cam_model) ||
+        !mgr->cam_out_open) {
+        fprintf(stderr, "[sensors] ERROR: failed to allocate camera buffers\n");
+        mgr->config.enable.camera = false;
+    }
+}
+
+int sensor_camera_setup(sensor_mgr_t *mgr, const mjModel *model, transport_t *tp,
+                        const sensor_config_t *config, const char *topic_prefix) {
+    (void)model;
+    if (!mgr->config.enable.camera) {
+        return 0;
+    }
+    if (camera_models_ready(mgr, config) != 0) {
+        return -1;
+    }
+    if (!mgr->config.enable.camera) {
+        return 0;
+    }
+    char meta[CAMERA_NAME_LEN];
+    char rgb[CAMERA_NAME_LEN];
+    snprintf(meta, sizeof(meta), "/%s/camera/meta", topic_prefix ? topic_prefix : "drone");
+    snprintf(rgb, sizeof(rgb), "/%s/camera/rgb", topic_prefix ? topic_prefix : "drone");
+    size_t rgb_max = sizeof(sensor_camera_rgb_hdr_t) + (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3U;
+    if (transport_advertise(tp, meta, sizeof(sensor_camera_meta_t), &mgr->pub_camera_meta) != 0 ||
+        transport_advertise(tp, rgb, rgb_max, &mgr->pub_camera_rgb) != 0) {
+        fprintf(stderr, "[sensors] ERROR: failed to advertise camera topics, disabling camera\n");
+        mgr->config.enable.camera = false;
+        return 0;
+    }
+    camera_buffers(mgr, config, topic_prefix);
+    return 0;
+}
+
 void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
                           mjData *data) {
     if (!mgr->config.enable.camera || !mgr->cam_due) {

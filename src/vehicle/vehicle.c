@@ -1,6 +1,7 @@
 #include "vehicle/vehicle.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -84,7 +85,7 @@ static void apply_wind(vehicle_t *vehicle, const mjModel *model, mjData *data, d
     }
     double vel6[6];
     mj_objectVelocity(model, data, mjOBJ_BODY, body, vel6, 0);
-    const double *pos = &data->xpos[3 * body];
+    const double *pos = &data->xpos[(ptrdiff_t)3 * body];
     double airspeed = sqrt(vel6[3] * vel6[3] + vel6[4] * vel6[4] + vel6[5] * vel6[5]);
     double ned[3];
     wind_step(&vehicle->wind, pos[2], airspeed, dt, ned);
@@ -95,8 +96,8 @@ static void apply_wind(vehicle_t *vehicle, const mjModel *model, mjData *data, d
     double force[3];
     aero_drag_force(atm.air_density, vehicle->drag_cd_area, wind_enu, &vel6[3], force);
     for (int i = 0; i < 3; i++) {
-        data->xfrc_applied[6 * body + i] = force[i];
-        data->xfrc_applied[6 * body + 3 + i] = 0.0;
+        data->xfrc_applied[(ptrdiff_t)6 * body + i] = force[i];
+        data->xfrc_applied[(ptrdiff_t)6 * body + 3 + i] = 0.0;
     }
 }
 

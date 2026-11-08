@@ -53,14 +53,14 @@ void sensor_read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     }
 
     if (mgr->use_mag_model && mgr->adr_quat >= 0) {
-        const double *q = &data->sensordata[mgr->adr_quat];
-        double r[9];
-        mju_quat2Mat(r, q);
+        const double *quat = &data->sensordata[mgr->adr_quat];
+        double rot[9];
+        mju_quat2Mat(rot, quat);
         double field_nt[3];
         for (int i = 0; i < 3; i++) {
-            field_nt[i] = 1000.0 * (r[i] * mgr->config.mag_field_enu_ut[0] +
-                                    r[3 + i] * mgr->config.mag_field_enu_ut[1] +
-                                    r[6 + i] * mgr->config.mag_field_enu_ut[2]);
+            field_nt[i] = 1000.0 * (rot[i] * mgr->config.mag_field_enu_ut[0] +
+                                    rot[3 + i] * mgr->config.mag_field_enu_ut[1] +
+                                    rot[6 + i] * mgr->config.mag_field_enu_ut[2]);
         }
         if (mgr->mag_count == 0) {
             double out_nt[3];

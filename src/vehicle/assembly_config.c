@@ -2,6 +2,7 @@
 #include "vehicle/assembly_config.h"
 
 #include <ctype.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,113 +43,128 @@ typedef struct {
     vehicle_assembly_spec_t *cur_vehicle;
 } parse_state_t;
 
-static int handle_key_value(const parse_ctx_t *ctx, parse_state_t *state,
-                            scenario_t *out, const char *key,
-                            const char *value) {
-    if (state->section == SECTION_SCENARIO) {
-        if (strcmp(key, "environment") == 0) {
-            snprintf(out->environment, sizeof(out->environment), "%s", value);
-            state->have_env = 1;
-        } else if (strcmp(key, "environment_seed") == 0) {
-            out->environment_seed = (unsigned)strtoul(value, NULL, 10);
-            state->have_seed = 1;
-        } else if (strcmp(key, "weather") == 0) {
-            snprintf(out->weather, sizeof(out->weather), "%s", value);
-        } else if (strcmp(key, "duration") == 0) {
-            out->duration_s = strtod(value, NULL);
-            state->have_duration = 1;
-        } else {
-            fprintf(stderr, "%s:%d: warning: unknown key '%s'\n",
-                    ctx->path, ctx->line, key);
-        }
-        return 0;
-    }
-
-    if (state->section == SECTION_VEHICLE && state->cur_vehicle) {
-        vehicle_assembly_spec_t *veh = state->cur_vehicle;
-        if (strcmp(key, "airframe") == 0) {
-            snprintf(veh->airframe, sizeof(veh->airframe), "%s", value);
-        } else if (strcmp(key, "controller") == 0) {
-            snprintf(veh->controller, sizeof(veh->controller), "%s", value);
-        } else if (strcmp(key, "estimator") == 0) {
-            snprintf(veh->estimator, sizeof(veh->estimator), "%s", value);
-        } else if (strcmp(key, "localization") == 0) {
-            snprintf(veh->localization, sizeof(veh->localization), "%s",
-                     value);
-        } else if (strcmp(key, "spawn") == 0) {
-            char work[64];
-            snprintf(work, sizeof(work), "%s", value);
-            char *cursor = work;
-            char *end = NULL;
-            veh->spawn_pos[0] = strtod(cursor, &end);
-            if (end == cursor) goto bad_spawn;
-            cursor = end;
-            veh->spawn_pos[1] = strtod(cursor, &end);
-            if (end == cursor) goto bad_spawn;
-            cursor = end;
-            veh->spawn_pos[2] = strtod(cursor, &end);
-            if (end == cursor || *trim(end) != '\0') goto bad_spawn;
-            goto spawn_ok;
-        bad_spawn:
-            fprintf(stderr, "%s:%d: spawn needs 3 numbers\n",
-                    ctx->path, ctx->line);
+static int parse_triple(const parse_ctx_t *ctx, const char *key, const char *value,
+                        double out[3]) {
+    const char *cursor = value;
+    char *end = NULL;
+    for (int axis = 0; axis < 3; axis++) {
+        out[axis] = strtod(cursor, &end);
+        if (end == cursor) {
+            fprintf(stderr, "%s:%d: %s needs 3 numbers\n", ctx->path, ctx->line, key);
             return -1;
-        spawn_ok:
-            ;
-        } else if (strcmp(key, "target") == 0) {
-            char *end = NULL;
-            const char *cursor = value;
-            for (int axis = 0; axis < 3; axis++) {
-                veh->target_pos[axis] = strtod(cursor, &end);
-                if (end == cursor) {
-                    fprintf(stderr, "%s:%d: target needs 3 numbers\n", ctx->path, ctx->line);
-                    return -1;
-                }
-                cursor = end;
-            }
-            if (*trim((char *)cursor) != '\0') {
-                fprintf(stderr, "%s:%d: target needs 3 numbers\n", ctx->path, ctx->line);
-                return -1;
-            }
-            veh->has_target = 1;
-        } else if (strcmp(key, "yaw") == 0) {
-            veh->spawn_yaw = strtod(value, NULL);
-        } else if (strcmp(key, "speed") == 0) {
-            veh->spawn_speed = strtod(value, NULL);
-        } else if (strcmp(key, "imu") == 0) {
-            snprintf(veh->imu, sizeof(veh->imu), "%s", value);
-        } else if (strcmp(key, "gnss") == 0) {
-            snprintf(veh->gnss, sizeof(veh->gnss), "%s", value);
-        } else if (strcmp(key, "drag_area") == 0) {
-            veh->drag_area = strtod(value, NULL);
-        } else if (strcmp(key, "gnss_rtk") == 0) {
-            veh->gnss_rtk = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
-        } else if (strcmp(key, "gnss_start") == 0) {
-            if (strcmp(value, "cold") == 0) {
-                veh->gnss_cold_start = 1;
-            } else if (strcmp(value, "warm") == 0) {
-                veh->gnss_cold_start = 0;
-            } else {
-                fprintf(stderr, "%s:%d: gnss_start must be warm or cold\n", ctx->path, ctx->line);
-                return -1;
-            }
-        } else if (strcmp(key, "baro") == 0) {
-            snprintf(veh->baro, sizeof(veh->baro), "%s", value);
-        } else if (strcmp(key, "rangefinder") == 0) {
-            snprintf(veh->rangefinder, sizeof(veh->rangefinder), "%s", value);
-        } else if (strcmp(key, "mag") == 0) {
-            snprintf(veh->mag, sizeof(veh->mag), "%s", value);
-        } else if (strcmp(key, "vibration") == 0) {
-            veh->vibration = strtod(value, NULL);
-        } else {
-            fprintf(stderr, "%s:%d: warning: unknown key '%s'\n",
-                    ctx->path, ctx->line, key);
         }
-        return 0;
+        cursor = end;
     }
+    if (*trim((char *)cursor) != '\0') {
+        fprintf(stderr, "%s:%d: %s needs 3 numbers\n", ctx->path, ctx->line, key);
+        return -1;
+    }
+    return 0;
+}
 
-    fprintf(stderr, "%s:%d: key '%s' outside any section\n",
-            ctx->path, ctx->line, key);
+static int handle_scenario_key(const parse_ctx_t *ctx, parse_state_t *state, scenario_t *out,
+                               const char *key, const char *value) {
+    if (strcmp(key, "environment") == 0) {
+        snprintf(out->environment, sizeof(out->environment), "%s", value);
+        state->have_env = 1;
+    } else if (strcmp(key, "environment_seed") == 0) {
+        out->environment_seed = (unsigned)strtoul(value, NULL, 10);
+        state->have_seed = 1;
+    } else if (strcmp(key, "weather") == 0) {
+        snprintf(out->weather, sizeof(out->weather), "%s", value);
+    } else if (strcmp(key, "duration") == 0) {
+        out->duration_s = strtod(value, NULL);
+        state->have_duration = 1;
+    } else {
+        fprintf(stderr, "%s:%d: warning: unknown key '%s'\n", ctx->path, ctx->line, key);
+    }
+    return 0;
+}
+
+typedef struct {
+    const char *key;
+    size_t offset;
+} string_field_t;
+
+typedef struct {
+    const char *key;
+    size_t offset;
+} number_field_t;
+
+static const string_field_t STRING_FIELDS[] = {
+    {"airframe", offsetof(vehicle_assembly_spec_t, airframe)},
+    {"controller", offsetof(vehicle_assembly_spec_t, controller)},
+    {"estimator", offsetof(vehicle_assembly_spec_t, estimator)},
+    {"localization", offsetof(vehicle_assembly_spec_t, localization)},
+    {"imu", offsetof(vehicle_assembly_spec_t, imu)},
+    {"gnss", offsetof(vehicle_assembly_spec_t, gnss)},
+    {"baro", offsetof(vehicle_assembly_spec_t, baro)},
+    {"mag", offsetof(vehicle_assembly_spec_t, mag)},
+    {"rangefinder", offsetof(vehicle_assembly_spec_t, rangefinder)},
+};
+
+static const number_field_t NUMBER_FIELDS[] = {
+    {"yaw", offsetof(vehicle_assembly_spec_t, spawn_yaw)},
+    {"speed", offsetof(vehicle_assembly_spec_t, spawn_speed)},
+    {"vibration", offsetof(vehicle_assembly_spec_t, vibration)},
+    {"drag_area", offsetof(vehicle_assembly_spec_t, drag_area)},
+};
+
+static int handle_vehicle_flag(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, const char *key,
+                               const char *value, int *handled) {
+    *handled = 1;
+    if (strcmp(key, "gnss_rtk") == 0) {
+        veh->gnss_rtk = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
+    } else if (strcmp(key, "gnss_start") == 0) {
+        if (strcmp(value, "cold") != 0 && strcmp(value, "warm") != 0) {
+            fprintf(stderr, "%s:%d: gnss_start must be warm or cold\n", ctx->path, ctx->line);
+            return -1;
+        }
+        veh->gnss_cold_start = strcmp(value, "cold") == 0;
+    } else if (strcmp(key, "spawn") == 0) {
+        return parse_triple(ctx, key, value, veh->spawn_pos);
+    } else if (strcmp(key, "target") == 0) {
+        veh->has_target = 1;
+        return parse_triple(ctx, key, value, veh->target_pos);
+    } else {
+        *handled = 0;
+    }
+    return 0;
+}
+
+static int handle_vehicle_key(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, const char *key,
+                              const char *value) {
+    int handled = 0;
+    int status = handle_vehicle_flag(ctx, veh, key, value, &handled);
+    if (handled) {
+        return status;
+    }
+    for (size_t idx = 0; idx < sizeof(STRING_FIELDS) / sizeof(STRING_FIELDS[0]); idx++) {
+        if (strcmp(key, STRING_FIELDS[idx].key) == 0) {
+            snprintf((char *)veh + STRING_FIELDS[idx].offset, ASSEMBLY_MAX_NAME_LEN, "%s", value);
+            return 0;
+        }
+    }
+    for (size_t idx = 0; idx < sizeof(NUMBER_FIELDS) / sizeof(NUMBER_FIELDS[0]); idx++) {
+        if (strcmp(key, NUMBER_FIELDS[idx].key) == 0) {
+            double *dest = (double *)(void *)((char *)veh + NUMBER_FIELDS[idx].offset);
+            *dest = strtod(value, NULL);
+            return 0;
+        }
+    }
+    fprintf(stderr, "%s:%d: warning: unknown key '%s'\n", ctx->path, ctx->line, key);
+    return 0;
+}
+
+static int handle_key_value(const parse_ctx_t *ctx, parse_state_t *state, scenario_t *out,
+                            const char *key, const char *value) {
+    if (state->section == SECTION_SCENARIO) {
+        return handle_scenario_key(ctx, state, out, key, value);
+    }
+    if (state->section == SECTION_VEHICLE && state->cur_vehicle) {
+        return handle_vehicle_key(ctx, state->cur_vehicle, key, value);
+    }
+    fprintf(stderr, "%s:%d: key '%s' outside any section\n", ctx->path, ctx->line, key);
     return -1;
 }
 
