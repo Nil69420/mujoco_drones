@@ -89,9 +89,6 @@ if(ENABLE_IPC)
     src/vehicle/airframes/aslfixedwing_spec.c
     src/vehicle/airframes/quadx_spec.c
     src/vehicle/airframes/omav_spec.c
-        src/environments/environment_registry.c
-        src/environments/desert.c
-        src/environments/forest.c
         src/vehicle/vehicle.c
         src/vehicle/assembly_config.c
         src/scenario_main.c
@@ -134,6 +131,11 @@ add_library(mdmodels STATIC
     src/sensors/models/range_profiles.c
     src/sensors/models/camera_model.c
     src/sensors/models/camera_profiles.c
+    src/environments/terrain.c
+    src/environments/biome.c
+    src/environments/biome_scatter.c
+    src/environments/biome_profiles.c
+    src/environments/environment_registry.c
     src/foxglove/ws_proto.c
     src/foxglove/ops.c
     src/foxglove/sha1.c
@@ -143,7 +145,9 @@ set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
     COMPILE_OPTIONS "-O3;-fno-math-errno;-ffinite-math-only;-fno-signed-zeros")
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
-target_link_libraries(mdmodels PUBLIC m)
+target_link_directories(mdmodels PUBLIC ${MUJOCO_DIR}/lib)
+target_include_directories(mdmodels PUBLIC ${MUJOCO_DIR}/include)
+target_link_libraries(mdmodels PUBLIC m mujoco)
 
 enable_testing()
 add_executable(test_conditions tests/test_conditions.c)
@@ -187,6 +191,12 @@ target_include_directories(test_camera_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_camera_model PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_camera_model PRIVATE mdmodels)
 add_test(NAME camera_model COMMAND test_camera_model)
+
+add_executable(test_biomes tests/test_biomes.c)
+target_include_directories(test_biomes PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_biomes PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_biomes PRIVATE mdmodels)
+add_test(NAME biomes COMMAND test_biomes WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
@@ -328,7 +338,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -338,7 +348,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread

@@ -3,14 +3,13 @@
 
 #include <mujoco/mjspec.h>
 
-typedef struct {
-    const char *name;   /* e.g. "desert" */
-    /* Procedurally populates `spec`'s worldbody with terrain/vegetation/
-     * obstacles and sets any physics defaults (friction, wind — see Step
-     * 10) specific to this environment, driven by `seed`. Uses the mjSpec
-     * C API (mjs_addBody/mjs_addGeom/etc.) directly rather than generating
-     * and re-parsing MJCF text. Returns 0 on success. */
-    int (*generate)(mjSpec *spec, unsigned seed);
+struct biome_profile_s;
+
+typedef struct environment_ops_s {
+    const char *name;
+    const char *description;
+    const struct biome_profile_s *biome;
+    int (*generate)(const struct environment_ops_s *self, mjSpec *spec, unsigned seed);
 } environment_ops_t;
 
 const environment_ops_t *environment_registry_find(const char *name);

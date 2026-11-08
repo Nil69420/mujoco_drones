@@ -35,7 +35,7 @@ static int compose_scene(scenario_t *scenario, mjModel **out_model,
         return -1;
     }
 
-    if (env->generate(scene, scenario->environment_seed) != 0) {
+    if (env->generate(env, scene, scenario->environment_seed) != 0) {
         snprintf(error, (size_t)error_sz, "environment '%s' generation failed",
                  scenario->environment);
         mj_deleteSpec(scene);

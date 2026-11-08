@@ -1,41 +1,47 @@
+#include "environments/biome.h"
 #include "environments/environment_ops.h"
 
 #include <stddef.h>
 #include <string.h>
 
-extern const environment_ops_t desert_environment_ops;
-extern const environment_ops_t forest_environment_ops;
+static int generate_biome(const environment_ops_t *self, mjSpec *spec, unsigned seed) {
+    return biome_generate(spec, self->biome, seed);
+}
 
-static const environment_ops_t *const *environment_table(int *count) {
-    static const environment_ops_t *const table[] = {
-        &desert_environment_ops,
-        &forest_environment_ops,
-    };
-    *count = (int)(sizeof(table) / sizeof(table[0]));
-    return table;
+static environment_ops_t g_ops[64];
+static int g_count;
+
+static void ensure_table(void) {
+    if (g_count > 0) {
+        return;
+    }
+    for (size_t i = 0; i < BIOME_PROFILE_COUNT && i < sizeof(g_ops) / sizeof(g_ops[0]); i++) {
+        g_ops[i].name = BIOME_PROFILES[i].name;
+        g_ops[i].description = BIOME_PROFILES[i].description;
+        g_ops[i].biome = &BIOME_PROFILES[i];
+        g_ops[i].generate = generate_biome;
+        g_count++;
+    }
 }
 
 const environment_ops_t *environment_registry_find(const char *name) {
     if (!name) return NULL;
-    int count = 0;
-    const environment_ops_t *const *table = environment_table(&count);
-    for (int i = 0; i < count; i++) {
-        if (table[i]->name && strcmp(table[i]->name, name) == 0) {
-            return table[i];
+    ensure_table();
+    for (int i = 0; i < g_count; i++) {
+        if (strcmp(g_ops[i].name, name) == 0) {
+            return &g_ops[i];
         }
     }
     return NULL;
 }
 
 int environment_registry_count(void) {
-    int count = 0;
-    environment_table(&count);
-    return count;
+    ensure_table();
+    return g_count;
 }
 
 const environment_ops_t *environment_registry_at(int index) {
-    int count = 0;
-    const environment_ops_t *const *table = environment_table(&count);
-    if (index < 0 || index >= count) return NULL;
-    return table[index];
+    ensure_table();
+    if (index < 0 || index >= g_count) return NULL;
+    return &g_ops[index];
 }
