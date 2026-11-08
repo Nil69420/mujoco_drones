@@ -124,6 +124,8 @@ add_library(mdmodels STATIC
     src/conditions/presets.c
     src/sensors/models/imu_model.c
     src/sensors/models/imu_profiles.c
+    src/sensors/models/gnss_model.c
+    src/sensors/models/gnss_profiles.c
 )
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -141,6 +143,12 @@ target_include_directories(test_imu_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_imu_model PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_imu_model PRIVATE mdmodels)
 add_test(NAME imu_model COMMAND test_imu_model)
+
+add_executable(test_gnss_model tests/test_gnss_model.c)
+target_include_directories(test_gnss_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_gnss_model PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_gnss_model PRIVATE mdmodels)
+add_test(NAME gnss_model COMMAND test_gnss_model)
 
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
