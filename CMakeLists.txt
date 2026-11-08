@@ -116,6 +116,24 @@ set(COMMON_COMPILE_OPTIONS
     -fstack-protector-strong
 )
 
+add_library(mdmodels STATIC
+    src/conditions/atmosphere.c
+    src/conditions/wind.c
+    src/conditions/thermal.c
+    src/conditions/vibration.c
+    src/conditions/presets.c
+)
+target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(mdmodels PUBLIC m)
+
+enable_testing()
+add_executable(test_conditions tests/test_conditions.c)
+target_include_directories(test_conditions PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_conditions PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_conditions PRIVATE mdmodels)
+add_test(NAME conditions COMMAND test_conditions)
+
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -132,6 +150,7 @@ target_link_directories(hummingbird PRIVATE
 )
 
 target_link_libraries(hummingbird PRIVATE
+    mdmodels
     mujoco
     m
 )
