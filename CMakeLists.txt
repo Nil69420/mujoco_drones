@@ -126,6 +126,12 @@ add_library(mdmodels STATIC
     src/sensors/models/imu_profiles.c
     src/sensors/models/gnss_model.c
     src/sensors/models/gnss_profiles.c
+    src/sensors/models/baro_model.c
+    src/sensors/models/baro_profiles.c
+    src/sensors/models/mag_model.c
+    src/sensors/models/mag_profiles.c
+    src/sensors/models/range_model.c
+    src/sensors/models/range_profiles.c
 )
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -149,6 +155,12 @@ target_include_directories(test_gnss_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_gnss_model PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_gnss_model PRIVATE mdmodels)
 add_test(NAME gnss_model COMMAND test_gnss_model)
+
+add_executable(test_misc_models tests/test_misc_models.c)
+target_include_directories(test_misc_models PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_misc_models PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_misc_models PRIVATE mdmodels)
+add_test(NAME misc_models COMMAND test_misc_models)
 
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
