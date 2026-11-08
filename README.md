@@ -2,7 +2,16 @@
 
 High-fidelity quadrotor simulation built on [MuJoCo](https://mujoco.org/) with real-time IPC transport and live telemetry visualization.
 
-Simulates a Hummingbird quadrotor with a full sensor suite (IMU, GNSS, barometer, LiDAR, infrared, camera), PD attitude/position flight controller, and zero-copy IPC via [Renoir](https://github.com/Nil69420/renoir). A built-in [Foxglove](https://foxglove.dev/) WebSocket bridge enables real-time visualization from any Foxglove-compatible client.
+Plug-and-play drone and aircraft simulation: mix and match sensor hardware (IMU, GNSS, barometer, magnetometer, rangefinder, camera) from consumer to survey grade, fly in 15 generated biomes, and add wind, motor vibration and temperature effects. Sensors publish over zero-copy IPC via [Renoir](https://github.com/Nil69420/renoir) (a 1280x720 mono8 camera at 120 fps goes through a shared-memory frame ring), and a built-in [Foxglove](https://foxglove.dev/) WebSocket bridge gives live visualisation.
+
+```bash
+./build/hummingbird --list-sensors
+./build/hummingbird --headless --scenario scenarios/desert_rtk.scn
+./build/hummingbird --headless --imu icm42688p --gnss zed_f9p --baro dps310 --mag rm3100 \
+    --cam-profile ar0234 --cam-width 1280 --cam-height 720 --cam-fps 120 --weather storm --vibration 1
+```
+
+Guides: [sensors](docs/sensors.md), [camera](docs/camera.md), [environments](docs/environments.md), [scenarios](docs/scenarios.md), [estimation](docs/estimation.md), [Foxglove bridge](docs/foxglove.md), [URDF importer](docs/urdf_import.md), [testing](docs/testing.md). Requires Renoir 0.9 or newer (frame rings).
 
 ## Demo
 
@@ -23,7 +32,7 @@ Runtime data path:
 2. Controller computes rotor thrust and spin commands from state estimates and target setpoint.
 3. Sensor subsystem publishes deterministic IMU, GNSS, barometer, LiDAR, infrared, and camera outputs.
 4. Renoir transport publishes sensor payloads over shared-memory channels with zero-copy semantics.
-5. Foxglove bridge drains transport topics and serves telemetry streams over WebSocket (`ws://0.0.0.0:8765`).
+5. Foxglove bridge drains transport topics and serves telemetry streams over WebSocket (`ws://127.0.0.1:8765`; see [docs/foxglove.md](docs/foxglove.md) for the security model).
 
 Subsystem boundaries:
 
@@ -31,7 +40,10 @@ Subsystem boundaries:
 |-----------|----------------|---------------|
 | Simulation core | Model loading, stepping loop, CLI integration | `src/main.c`, `model/scene.xml`, `model/hummingbird.xml` |
 | Control | Position/attitude control, actuator mapping | `src/controller.c`, `include/controller.h` |
-| Sensor synthesis | Signal generation, timing, camera rendering | `src/sensors/sensors.c`, `include/sensors/` |
+| Sensor synthesis | Scheduling, model wiring, camera rendering | `src/sensors/sensors*.c`, `src/sensors/models/`, `include/sensors/` |
+| Conditions | Atmosphere, wind and turbulence, thermal, rotor vibration | `src/conditions/` |
+| Environments | Seeded biome generator and profiles | `src/environments/` |
+| Estimation | Attitude and position estimators | `src/vehicle/estimators/` |
 | IPC transport | Renoir topic publish/subscribe integration | `src/transport/transport_renoir.c`, `include/transport/` |
 | Telemetry serving | Foxglove protocol, framing, serialization | `src/foxglove/`, `include/foxglove/` |
 
@@ -58,7 +70,7 @@ mv ~/.mujoco/mujoco-3.5.0 ~/.mujoco/mujoco
 ### Install system dependencies (Ubuntu/Debian)
 
 ```bash
-sudo apt-get install build-essential cmake libglfw3-dev libgl-dev clang-tidy
+sudo apt-get install build-essential cmake libglfw3-dev libgl-dev libegl-dev clang-tidy
 ```
 
 ### Build Renoir
@@ -122,7 +134,7 @@ Both sanitizer workflows build dedicated debug trees (`build-analyze` and `build
 
 ## Foxglove Visualization
 
-When built with `ENABLE_FOXGLOVE=ON` (default), the simulator starts a WebSocket server on `ws://0.0.0.0:8765`.
+When built with `ENABLE_FOXGLOVE=ON` (default), the simulator starts a WebSocket server on `ws://127.0.0.1:8765`. It listens on the loopback interface only; set `MUJOCO_DRONES_FOXGLOVE_BIND` to an interface address to expose it (there is no authentication or TLS).
 
 Connect with [Foxglove Studio](https://foxglove.dev/):
 1. Open Foxglove Studio
@@ -197,7 +209,10 @@ GitHub Actions runs on every push and PR to `master`:
 - **Release** — full build with IPC + Foxglove
 - **ASan** — AddressSanitizer + UndefinedBehaviorSanitizer
 - **TSan** — ThreadSanitizer
-- **Static Analysis** — clang-tidy with warnings-as-errors
+- **Static Analysis** — clang-tidy with warnings-as-errors over every source
+- **Fuzz** — libFuzzer smoke run of the WebSocket parser
+- **Foxglove adversarial suite** — 27 hostile-client scenarios against a live simulator
+- `ctest` runs in every build job (the TSan job skips the live tests)
 
 ## License
 
