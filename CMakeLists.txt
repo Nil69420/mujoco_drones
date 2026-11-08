@@ -122,6 +122,8 @@ add_library(mdmodels STATIC
     src/conditions/thermal.c
     src/conditions/vibration.c
     src/conditions/presets.c
+    src/sensors/models/imu_model.c
+    src/sensors/models/imu_profiles.c
 )
 target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -133,6 +135,12 @@ target_include_directories(test_conditions PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_conditions PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_conditions PRIVATE mdmodels)
 add_test(NAME conditions COMMAND test_conditions)
+
+add_executable(test_imu_model tests/test_imu_model.c)
+target_include_directories(test_imu_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_imu_model PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_imu_model PRIVATE mdmodels)
+add_test(NAME imu_model COMMAND test_imu_model)
 
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
