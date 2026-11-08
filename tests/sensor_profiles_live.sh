@@ -39,7 +39,7 @@ SHAKY=$(run_tap --weather hot_desert --vibration 3)
 CALM_STD=$(echo "$CALM" | awk '/accel0 mean/ {print $5}')
 SHAKY_STD=$(echo "$SHAKY" | awk '/accel0 mean/ {print $5}')
 echo "accel0 std calm=$CALM_STD vibrating=$SHAKY_STD"
-awk -v a="$CALM_STD" -v b="$SHAKY_STD" 'BEGIN { exit !(b > 2 * a) }' || fail "vibration did not raise the accelerometer noise"
+awk -v a="$CALM_STD" -v b="$SHAKY_STD" 'BEGIN { d = b * b - a * a; exit !(d > 0 && sqrt(d) > 0.05) }' || fail "vibration did not add accelerometer noise"
 MAGZ=$(echo "$CALM" | awk '/mag2 mean/ {print $3}')
 awk -v z="$MAGZ" 'BEGIN { exit !(z < -35 && z > -50) }' || fail "magnetometer vertical component $MAGZ outside the expected Earth field"
 "$BIN_DIR/hummingbird" --headless --duration 20 --cam-width 1280 --cam-height 720 --cam-fps 120 \

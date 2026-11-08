@@ -349,7 +349,7 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     }
     if (config->vibration_scale > 0.0) {
         int ok = 1;
-        char nm[16];
+        char nm[32];
         for (int i = 0; i < 4; i++) {
             snprintf(nm, sizeof(nm), "thrust_%d", i);
             mgr->act_thrust[i] = mj_name2id(model, mjOBJ_ACTUATOR, nm);

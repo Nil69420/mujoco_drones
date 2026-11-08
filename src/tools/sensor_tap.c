@@ -193,6 +193,9 @@ int main(int argc, char **argv) {
                cam_t1 > cam_t0 ? (double)(cam_seq1 - cam_seq0) * 1e9 / (double)(cam_t1 - cam_t0) : 0.0);
     }
     if (have_cam) renoir_frame_close(cam_h);
+    transport_close_sub(&s_imu);
+    transport_close_sub(&s_gnss);
+    transport_close_sub(&s_baro);
     transport_shutdown(&tp);
     return 0;
 }
