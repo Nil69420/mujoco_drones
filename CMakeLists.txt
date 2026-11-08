@@ -78,6 +78,7 @@ if(ENABLE_IPC)
         src/vehicle/controller_registry.c
         src/vehicle/controllers/pd_multicopter.c
         src/vehicle/controllers/fixedwing_basic.c
+        src/vehicle/controllers/omav_basic.c
         src/vehicle/estimator_registry.c
         src/vehicle/estimators/ground_truth.c
         src/vehicle/estimators/complementary_filter.c
@@ -85,6 +86,9 @@ if(ENABLE_IPC)
         src/vehicle/localization/ground_truth.c
         src/vehicle/localization/gnss.c
         src/vehicle/airframe_registry.c
+    src/vehicle/airframes/aslfixedwing_spec.c
+    src/vehicle/airframes/quadx_spec.c
+    src/vehicle/airframes/omav_spec.c
         src/environments/environment_registry.c
         src/environments/desert.c
         src/environments/forest.c
@@ -178,6 +182,27 @@ if(ENABLE_IPC)
         BUILD_RPATH "${RENOIR_LIB_DIR}"
         INSTALL_RPATH "${RENOIR_LIB_DIR}"
     )
+
+    add_executable(urdf_import
+        src/urdf_import_main.c
+        src/urdf_import_xml.c
+        src/urdf_import_config.c
+        src/urdf_import_sdf.c
+    )
+    target_compile_options(urdf_import PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_include_directories(urdf_import PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${MUJOCO_DIR}/include
+    )
+    target_link_directories(urdf_import PRIVATE ${MUJOCO_DIR}/lib)
+    target_link_libraries(urdf_import PRIVATE mujoco m)
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_compile_definitions(urdf_import PRIVATE _FORTIFY_SOURCE=2)
+    endif()
+    set_target_properties(urdf_import PROPERTIES
+        BUILD_RPATH "${MUJOCO_DIR}/lib"
+        INSTALL_RPATH "${MUJOCO_DIR}/lib"
+    )
 else()
     set_target_properties(hummingbird PROPERTIES
         BUILD_RPATH "${MUJOCO_DIR}/lib"
@@ -208,7 +233,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command)
+    foreach(tgt hummingbird send_command urdf_import)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -218,7 +243,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command)
+    foreach(tgt hummingbird send_command urdf_import)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
@@ -237,6 +262,14 @@ if(CLANG_TIDY)
     endforeach()
     if(ENABLE_IPC)
         list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/src/tools/send_command.c")
+    endif()
+    if(ENABLE_IPC)
+        list(APPEND TIDY_SRCS
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_main.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_xml.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_config.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_sdf.c"
+        )
     endif()
 
     add_custom_target(lint

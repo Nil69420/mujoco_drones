@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="synth">
+  <link name="base">
+    <inertial><mass value="1.0"/><inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/></inertial>
+  </link>
+  <link name="rotor_link">
+    <inertial><mass value="0.1"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
+  </link>
+  <link name="elevon_link">
+    <inertial><mass value="0.1"/><inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/></inertial>
+  </link>
+  <joint name="rotor_1_joint" type="continuous">
+    <parent link="base"/><child link="rotor_link"/>
+    <origin xyz="0 0 0.5"/><axis xyz="0 0 1"/>
+  </joint>
+  <joint name="elevon_left" type="revolute">
+    <parent link="base"/><child link="elevon_link"/>
+    <origin xyz="0 1 0"/><axis xyz="0 0 1"/>
+    <limit lower="-0.5" upper="0.5" effort="1" velocity="1"/>
+  </joint>
+</robot>

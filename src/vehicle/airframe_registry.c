@@ -3,6 +3,10 @@
 #include <stddef.h>
 #include <string.h>
 
+extern const airframe_spec_t aslfixedwing_SPEC;
+extern const airframe_spec_t quadx_SPEC;
+extern const airframe_spec_t omav_SPEC;
+
 static const airframe_spec_t QUAD_X = {
     .name           = "quad_x",
     .airframe_class = "rotor_multicopter",
@@ -38,6 +42,9 @@ static const airframe_spec_t *const *airframe_table(int *count) {
     static const airframe_spec_t *const table[] = {
         &QUAD_X,
         &FIXEDWING_BASIC,
+        &aslfixedwing_SPEC,
+        &quadx_SPEC,
+        &omav_SPEC,
     };
     *count = (int)(sizeof(table) / sizeof(table[0]));
     return table;

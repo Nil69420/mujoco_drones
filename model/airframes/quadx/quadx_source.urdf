@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<robot name="quadx">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.68"/>
+      <inertia ixx="0.007" ixy="0" ixz="0" iyy="0.007" iyz="0" izz="0.012"/>
+    </inertial>
+  </link>
+  <link name="rotor_0">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.009"/>
+      <inertia ixx="7.669e-06" ixy="0" ixz="0" iyy="7.507e-06" iyz="0" izz="1.755e-07"/>
+    </inertial>
+  </link>
+  <link name="rotor_1">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.009"/>
+      <inertia ixx="7.669e-06" ixy="0" ixz="0" iyy="7.507e-06" iyz="0" izz="1.755e-07"/>
+    </inertial>
+  </link>
+  <link name="rotor_2">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.009"/>
+      <inertia ixx="7.669e-06" ixy="0" ixz="0" iyy="7.507e-06" iyz="0" izz="1.755e-07"/>
+    </inertial>
+  </link>
+  <link name="rotor_3">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.009"/>
+      <inertia ixx="7.669e-06" ixy="0" ixz="0" iyy="7.507e-06" iyz="0" izz="1.755e-07"/>
+    </inertial>
+  </link>
+  <joint name="rotor_0_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_0"/>
+    <origin xyz="0.17 0 0.01"/><axis xyz="0 0 1"/>
+  </joint>
+  <joint name="rotor_1_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_1"/>
+    <origin xyz="0 0.17 0.01"/><axis xyz="0 0 1"/>
+  </joint>
+  <joint name="rotor_2_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_2"/>
+    <origin xyz="-0.17 0 0.01"/><axis xyz="0 0 1"/>
+  </joint>
+  <joint name="rotor_3_joint" type="continuous">
+    <parent link="base_link"/><child link="rotor_3"/>
+    <origin xyz="0 -0.17 0.01"/><axis xyz="0 0 1"/>
+  </joint>
+</robot>

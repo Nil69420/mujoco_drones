@@ -115,6 +115,9 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
         const vehicle_assembly_spec_t *as = &scenario->vehicles[i];
         vehicle_t *veh = &vehicles[i];
         memset(veh, 0, sizeof(*veh));
+        veh->last_imu_seq  = UINT32_MAX;
+        veh->last_gnss_seq = UINT32_MAX;
+        veh->last_baro_seq = UINT32_MAX;
 
         snprintf(veh->prefix, sizeof(veh->prefix), "%.*s_",
                           (int)(sizeof(veh->prefix) - 2), as->id);

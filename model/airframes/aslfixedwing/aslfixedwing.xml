@@ -1,0 +1,66 @@
+<mujoco model="aslfixedwing">
+  <compiler angle="radian"/>
+
+  <asset>
+    <mesh name="aslfixedwing.obj" content_type="model/obj" file="meshes/aslfixedwing.obj"/>
+    <mesh name="propeller_cw.obj" content_type="model/obj" file="meshes/propeller_cw.obj" scale="0.75 0.75 0.75"/>
+  </asset>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 0">
+      <inertial pos="0 0 0" mass="1.5" diaginertia="0.197563 0.145893 0.1477"/>
+      <freejoint name="root"/>
+    <geom name="base_link_collision" size="0.235 0.235 0.055" pos="0 0 -0.1" type="box"/>
+    <geom pos="-0.2 0 0" quat="4.63268e-05 0 0 1" type="mesh" contype="0" conaffinity="0" mesh="aslfixedwing.obj"/>
+    <site name="imu_site" pos="0 0 0"/>
+    <site name="lidar_site" pos="0 0 -0.02"/>
+    <site name="infrared_site" pos="0 0 -0.06" quat="0 1 0 0"/>
+    <body name="aslfixedwing/imu_link">
+      <inertial pos="0 0 0" mass="0.015" diaginertia="1e-05 1e-05 1e-05"/>
+      <joint name="aslfixedwing/imu_joint" pos="0 0 0" axis="1 0 0" actuatorfrcrange="-1000 1000"/>
+    </body>
+    <body name="rotor_puller">
+      <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.005" diaginertia="0.000167604 0.000166704 9.75e-07"/>
+      <joint name="rotor_puller_joint" pos="0 0 0" axis="1 0 0" range="-1e+16 1e+16" actuatorfrcrange="-1000 1000"/>
+      <geom name="rotor_puller_collision" size="0.1 0.0025" type="cylinder"/>
+      <geom pos="-0.06 0 -0.39" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+      <site name="rotor_puller_joint_thrust_site" pos="0 0 0" quat="0.707107 0 0.707107 0"/>
+    </body>
+    <body name="left_elevon" pos="0 0.3 0">
+      <inertial pos="0 0.3 0" mass="1e-08" diaginertia="1e-06 1e-06 1e-06"/>
+      <joint name="left_elevon_joint" pos="0 0 0" axis="0 1 0" range="-0.53 0.53" actuatorfrcrange="-1000 1000"/>
+    </body>
+    <body name="right_elevon" pos="0 -0.3 0">
+      <inertial pos="0 -0.3 0" mass="1e-08" diaginertia="1e-06 1e-06 1e-06"/>
+      <joint name="right_elevon_joint" pos="0 0 0" axis="0 1 0" range="-0.53 0.53" actuatorfrcrange="-1000 1000"/>
+    </body>
+    <body name="elevator" pos="-0.5 0 0">
+      <inertial pos="-0.5 0 0" mass="1e-08" diaginertia="1e-06 1e-06 1e-06"/>
+      <joint name="elevator_joint" pos="0 0 0" axis="0 1 0" range="-0.53 0.53" actuatorfrcrange="-1000 1000"/>
+    </body>
+    <body name="rudder" pos="-0.5 0 0.05">
+      <inertial pos="-0.5 0 0.05" mass="1e-08" diaginertia="1e-06 1e-06 1e-06"/>
+      <joint name="rudder_joint" pos="0 0 0" axis="0 0 1" range="-0.53 0.53" actuatorfrcrange="-1000 1000"/>
+    </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="rotor_puller_joint" site="rotor_puller_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="left_elevon_joint" joint="left_elevon_joint" biastype="affine" gainprm="0.0025" biasprm="0 -0.0025"/>
+    <general name="right_elevon_joint" joint="right_elevon_joint" biastype="affine" gainprm="0.0025" biasprm="0 -0.0025"/>
+    <general name="elevator_joint" joint="elevator_joint" biastype="affine" gainprm="0.0025" biasprm="0 -0.0025"/>
+    <general name="rudder_joint" joint="rudder_joint" biastype="affine" gainprm="0.0025" biasprm="0 -0.0025"/>
+  </actuator>
+
+  <sensor>
+    <accelerometer site="imu_site" name="imu_accel"/>
+    <gyro site="imu_site" name="imu_gyro"/>
+    <framequat objtype="site" objname="imu_site" name="orientation"/>
+    <framepos objtype="site" objname="imu_site" name="position"/>
+    <framexaxis objtype="site" objname="imu_site" name="heading"/>
+    <velocimeter site="imu_site" name="linvel"/>
+    <frameyaxis objtype="site" objname="imu_site" name="mag_y"/>
+    <framezaxis objtype="site" objname="imu_site" name="mag_z"/>
+  </sensor>
+</mujoco>

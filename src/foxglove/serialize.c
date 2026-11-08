@@ -95,7 +95,7 @@ int fg_serialize_camera_rgb(const void *data, char *buf, size_t sz) {
         "\"encoding\":\"rgb8\","
         "\"step\":%u,"
         "\"data\":\"",
-        (unsigned long)(hdr->header.timestamp_ns / 1000000000UL),
+        hdr->header.timestamp_ns / 1000000000UL,
         (unsigned)(hdr->header.timestamp_ns % 1000000000UL),
         hdr->width, hdr->height,
         (unsigned)(hdr->width * hdr->channels));
