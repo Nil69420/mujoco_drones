@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include "urdf_import_config.h"
 
 #include <ctype.h>
@@ -81,12 +80,10 @@ static int apply_key_value(const char *key, const char *value, int line_no, int 
                            int *is_motor, double *kp, double *kv, int *has_torque, double *torque,
                            int *has_ctrlrange, double ctrlrange[2], char *err, size_t err_sz) {
     if (strcmp(key, "type") == 0) {
-        if (strcmp(value, "motor") == 0) {
+        if (strcmp(value, "motor") == 0 || strcmp(value, "velocity") == 0) {
             *is_motor = 1;
         } else if (strcmp(value, "position") == 0) {
             *is_motor = 0;
-        } else if (strcmp(value, "velocity") == 0) {
-            *is_motor = 1;
         } else {
             snprintf(err, err_sz,
                      "line %d: unknown type '%s' "
@@ -131,169 +128,175 @@ static int apply_key_value(const char *key, const char *value, int line_no, int 
     return -1;
 }
 
+typedef struct {
+    actuator_config_t *cfg;
+    char *err;
+    size_t err_sz;
+    int in_section;
+    int in_channels;
+    int is_spin;
+    int have_type;
+    int is_motor;
+    int has_torque;
+    int has_ctrlrange;
+    double kp;
+    double kv;
+    double torque;
+    double ctrlrange[2];
+    char name[CONFIG_NAME_LEN];
+} parser_t;
+
+static void reset_section(parser_t *prs) {
+    prs->have_type = 0;
+    prs->is_motor = 0;
+    prs->kp = 40.0;
+    prs->kv = 0.0;
+    prs->has_torque = 0;
+    prs->torque = 0.0;
+    prs->has_ctrlrange = 0;
+}
+
+static int flush_section(parser_t *prs, int line_no) {
+    if (!prs->in_section || prs->in_channels) {
+        return 0;
+    }
+    if (!prs->have_type) {
+        if (line_no > 0) {
+            snprintf(prs->err, prs->err_sz, "line %d: section for joint '%s' has no type", line_no,
+                     prs->name);
+        } else {
+            snprintf(prs->err, prs->err_sz, "section for joint '%s' has no type", prs->name);
+        }
+        return -1;
+    }
+    return add_entry(prs->cfg, prs->name, prs->is_motor, prs->kp, prs->kv, prs->has_torque,
+                     prs->torque, prs->has_ctrlrange, prs->ctrlrange, prs->is_spin, prs->err,
+                     prs->err_sz);
+}
+
+static int begin_section(parser_t *prs, char *text, int line_no) {
+    if (flush_section(prs, line_no) != 0) {
+        return -1;
+    }
+    char *close = strchr(text, ']');
+    if (!close) {
+        snprintf(prs->err, prs->err_sz, "line %d: malformed section header", line_no);
+        return -1;
+    }
+    *close = '\0';
+    const char *name = trim(text + 1);
+    if (strcmp(name, "channels") == 0) {
+        prs->in_channels = 1;
+        prs->is_spin = 0;
+        prs->in_section = 1;
+        return 0;
+    }
+    if (strncmp(name, "joint ", 6) != 0 && strncmp(name, "spin ", 5) != 0) {
+        snprintf(prs->err, prs->err_sz,
+                 "line %d: expected '[joint <name>]', '[spin <name>]' or '[channels]'", line_no);
+        return -1;
+    }
+    prs->is_spin = strncmp(name, "spin ", 5) == 0;
+    snprintf(prs->name, sizeof(prs->name), "%.*s", (int)(sizeof(prs->name) - 1),
+             trim(name + (prs->is_spin ? 5 : 6)));
+    prs->in_channels = 0;
+    prs->in_section = 1;
+    reset_section(prs);
+    return 0;
+}
+
+static void parse_channel_order(actuator_config_t *cfg, const char *value) {
+    const char *cursor = value;
+    while (*cursor != '\0' && cfg->channel_order_count < CONFIG_MAX_ACTUATORS) {
+        const char *comma = strchr(cursor, ',');
+        const char *end = comma ? comma : cursor + strlen(cursor);
+        const char *start = cursor;
+        while (start < end && isspace((unsigned char)*start)) {
+            start++;
+        }
+        const char *stop = end;
+        while (stop > start && isspace((unsigned char)stop[-1])) {
+            stop--;
+        }
+        if (stop > start) {
+            char *slot = cfg->channel_order[cfg->channel_order_count];
+            size_t room = sizeof(cfg->channel_order[0]) - 1;
+            size_t len = (size_t)(stop - start) < room ? (size_t)(stop - start) : room;
+            memcpy(slot, start, len);
+            slot[len] = '\0';
+            cfg->channel_order_count++;
+        }
+        cursor = comma ? comma + 1 : end;
+    }
+}
+
+static int handle_pair(parser_t *prs, char *text, int line_no) {
+    if (!prs->in_section) {
+        snprintf(prs->err, prs->err_sz, "line %d: key/value outside of a '[joint <name>]' section",
+                 line_no);
+        return -1;
+    }
+    char *eq = strchr(text, '=');
+    if (!eq) {
+        snprintf(prs->err, prs->err_sz, "line %d: expected 'key = value'", line_no);
+        return -1;
+    }
+    *eq = '\0';
+    char key[64];
+    snprintf(key, sizeof(key), "%.*s", (int)(sizeof(key) - 1), trim(text));
+    char value[256];
+    snprintf(value, sizeof(value), "%.*s", (int)(sizeof(value) - 1), trim(eq + 1));
+    trim_end(key);
+    trim_end(value);
+    if (!prs->in_channels) {
+        return apply_key_value(key, value, line_no, &prs->have_type, &prs->is_motor, &prs->kp,
+                               &prs->kv, &prs->has_torque, &prs->torque, &prs->has_ctrlrange,
+                               prs->ctrlrange, prs->err, prs->err_sz);
+    }
+    if (strcmp(key, "order") != 0) {
+        snprintf(prs->err, prs->err_sz, "line %d: unknown key '%s' in [channels]", line_no, key);
+        return -1;
+    }
+    parse_channel_order(prs->cfg, value);
+    return 0;
+}
+
+static int parse_line(parser_t *prs, char *line, int line_no) {
+    char *text = line;
+    while (*text && isspace((unsigned char)*text)) {
+        text++;
+    }
+    char *eol = strchr(text, '\n');
+    if (eol) {
+        *eol = '\0';
+    }
+    if (*text == '\0' || *text == '#') {
+        return 0;
+    }
+    return *text == '[' ? begin_section(prs, text, line_no) : handle_pair(prs, text, line_no);
+}
+
 int config_parse(const char *path, actuator_config_t *cfg, char *err, size_t err_sz) {
     memset(cfg, 0, sizeof(*cfg));
-    FILE *f = fopen(path, "r");
-    if (!f) {
+    FILE *file = fopen(path, "r");
+    if (!file) {
         snprintf(err, err_sz, "cannot open config file '%s'", path);
         return -1;
     }
-
+    parser_t prs;
+    memset(&prs, 0, sizeof(prs));
+    prs.cfg = cfg;
+    prs.err = err;
+    prs.err_sz = err_sz;
+    reset_section(&prs);
     char line[1024];
     int line_no = 0;
-    int in_section = 0;
-    char section_name[CONFIG_NAME_LEN] = "";
-    int have_type = 0;
-    int is_motor = 0;
-    double kp = 40.0;
-    double kv = 0.0;
-    int has_torque = 0;
-    double torque = 0.0;
-    int has_ctrlrange = 0;
-    int section_is_spin = 0;
-    int in_channels_section = 0;
-    double ctrlrange[2] = {0.0, 0.0};
-
-    while (fgets(line, sizeof(line), f) != NULL) {
-        line_no++;
-        char *text = line;
-        while (*text && isspace((unsigned char)*text)) {
-            text++;
-        }
-        char *eol = strchr(text, '\n');
-        if (eol) {
-            *eol = '\0';
-        }
-        if (*text == '\0' || *text == '#') {
-            continue;
-        }
-        if (*text == '[') {
-            if (in_section) {
-                if (!have_type) {
-                    snprintf(err, err_sz, "line %d: section for joint '%s' has no type", line_no,
-                             section_name);
-                    fclose(f);
-                    return -1;
-                }
-                if (add_entry(cfg, section_name, is_motor, kp, kv, has_torque, torque,
-                              has_ctrlrange, ctrlrange, section_is_spin, err, err_sz) != 0) {
-                    fclose(f);
-                    return -1;
-                }
-            }
-            char *close = strchr(text, ']');
-            if (!close) {
-                snprintf(err, err_sz, "line %d: malformed section header", line_no);
-                fclose(f);
-                return -1;
-            }
-            *close = '\0';
-            const char *name = trim(text + 1);
-            if (strcmp(name, "channels") == 0) {
-                in_channels_section = 1;
-                section_is_spin = 0;
-                snprintf(section_name, sizeof(section_name), "%s", "channels");
-                in_section = 1;
-                have_type = 1;
-                continue;
-            }
-            if (strncmp(name, "joint ", 6) != 0 && strncmp(name, "spin ", 5) != 0) {
-                snprintf(err, err_sz,
-                         "line %d: expected '[joint <name>]', '[spin <name>]' or "
-                         "'[channels]'",
-                         line_no);
-                fclose(f);
-                return -1;
-            }
-            section_is_spin = strncmp(name, "spin ", 5) == 0;
-            snprintf(section_name, sizeof(section_name), "%.*s", (int)(sizeof(section_name) - 1),
-                     trim(name + (section_is_spin ? 5 : 6)));
-            in_channels_section = 0;
-            in_section = 1;
-            have_type = 0;
-            is_motor = 0;
-            kp = 40.0;
-            kv = 0.0;
-            has_torque = 0;
-            torque = 0.0;
-            has_ctrlrange = 0;
-            continue;
-        }
-        if (!in_section) {
-            snprintf(err, err_sz, "line %d: key/value outside of a '[joint <name>]' section",
-                     line_no);
-            fclose(f);
-            return -1;
-        }
-
-        char *eq = strchr(text, '=');
-        if (!eq) {
-            snprintf(err, err_sz, "line %d: expected 'key = value'", line_no);
-            fclose(f);
-            return -1;
-        }
-        *eq = '\0';
-        char key[64];
-        snprintf(key, sizeof(key), "%.*s", (int)(sizeof(key) - 1), trim(text));
-        char value[256];
-        snprintf(value, sizeof(value), "%.*s", (int)(sizeof(value) - 1), trim(eq + 1));
-        trim_end(key);
-        trim_end(value);
-
-        if (in_channels_section) {
-            if (strcmp(key, "order") == 0) {
-                char *copy = strdup(value);
-                if (!copy) {
-                    fclose(f);
-                    return -1;
-                }
-                char *tok = strtok(copy, ",");
-                while (tok && cfg->channel_order_count < CONFIG_MAX_ACTUATORS) {
-                    char *t = tok;
-                    while (*t && isspace((unsigned char)*t)) {
-                        t++;
-                    }
-                    char *tend = t + strlen(t);
-                    while (tend > t && isspace((unsigned char)tend[-1])) {
-                        tend--;
-                    }
-                    if (tend > t) {
-                        snprintf(cfg->channel_order[cfg->channel_order_count],
-                                 sizeof(cfg->channel_order[cfg->channel_order_count]),
-                                 "%.*s", (int)(sizeof(cfg->channel_order[0]) - 1), t);
-                        cfg->channel_order_count++;
-                    }
-                    tok = strtok(NULL, ",");
-                }
-                free(copy);
-            } else {
-                snprintf(err, err_sz, "line %d: unknown key '%s' in [channels]", line_no,
-                         key);
-                fclose(f);
-                return -1;
-            }
-        } else if (apply_key_value(key, value, line_no, &have_type, &is_motor, &kp, &kv,
-                                   &has_torque, &torque, &has_ctrlrange, ctrlrange, err,
-                                   err_sz) != 0) {
-            fclose(f);
-            return -1;
-        }
+    int status = 0;
+    while (status == 0 && fgets(line, sizeof(line), file) != NULL) {
+        status = parse_line(&prs, line, ++line_no);
     }
-
-    if (in_section) {
-        if (!have_type) {
-            snprintf(err, err_sz, "section for joint '%s' has no type", section_name);
-            fclose(f);
-            return -1;
-        }
-        if (add_entry(cfg, section_name, is_motor, kp, kv, has_torque, torque, has_ctrlrange,
-                      ctrlrange, section_is_spin, err, err_sz) != 0) {
-            fclose(f);
-            return -1;
-        }
-    }
-    fclose(f);
-    return 0;
+    fclose(file);
+    return status != 0 ? -1 : flush_section(&prs, 0);
 }
 
 const config_actuator_t *config_find(const actuator_config_t *cfg, const char *joint) {

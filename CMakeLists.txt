@@ -205,6 +205,11 @@ target_compile_options(test_cli PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_cli PRIVATE mdmodels)
 add_test(NAME cli COMMAND test_cli)
 
+add_executable(test_import_config tests/test_import_config.c src/urdf_import_config.c)
+target_include_directories(test_import_config PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_import_config PRIVATE ${COMMON_COMPILE_OPTIONS})
+add_test(NAME import_config COMMAND test_import_config)
+
 add_executable(test_biomes tests/test_biomes.c)
 target_include_directories(test_biomes PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_biomes PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -316,6 +321,11 @@ if(ENABLE_IPC)
 
     add_executable(urdf_import
         src/urdf_import_main.c
+        src/urdf_import_io.c
+        src/urdf_import_mesh.c
+        src/urdf_import_actuators.c
+        src/urdf_import_emit.c
+        src/urdf_import_validate.c
         src/urdf_import_xml.c
         src/urdf_import_config.c
         src/urdf_import_sdf.c
@@ -364,7 +374,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -374,7 +384,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
@@ -397,6 +407,11 @@ if(CLANG_TIDY)
     if(ENABLE_IPC)
         list(APPEND TIDY_SRCS
             "${CMAKE_SOURCE_DIR}/src/urdf_import_main.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_io.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_mesh.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_actuators.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_emit.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_validate.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_xml.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_config.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_sdf.c"
