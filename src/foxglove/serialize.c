@@ -92,12 +92,13 @@ int fg_serialize_camera_rgb(const void *data, char *buf, size_t sz) {
         "{\"timestamp\":{\"sec\":%lu,\"nsec\":%u},"
         "\"frame_id\":\"camera\","
         "\"width\":%u,\"height\":%u,"
-        "\"encoding\":\"rgb8\","
+        "\"encoding\":\"%s\","
         "\"step\":%u,"
         "\"data\":\"",
         hdr->header.timestamp_ns / 1000000000UL,
         (unsigned)(hdr->header.timestamp_ns % 1000000000UL),
         hdr->width, hdr->height,
+        hdr->channels == 1 ? "mono8" : "rgb8",
         (unsigned)(hdr->width * hdr->channels));
 
     if (off < 0 || (size_t)off + px_len * 2 >= sz) return -1;

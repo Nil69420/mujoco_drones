@@ -35,6 +35,8 @@ enum {
     FG_LISTEN_BACKLOG = 16
 };
 
+#define FG_DEFAULT_CAMERA_FPS 10.0
+
 #define FG_TX_CAP ((size_t)4 * 1024 * 1024)
 
 struct foxglove_bridge {
@@ -59,6 +61,8 @@ struct foxglove_bridge {
     size_t   cam_rgb_buf_sz;
     size_t   cam_json_buf_sz;
     int      cam_rgb_ch;
+    uint64_t cam_next_ms;
+    uint64_t cam_interval_ms;
 };
 
 static const char SCHEMA_IMU[] =
@@ -168,7 +172,7 @@ static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
     }
 
     const sensor_camera_rgb_hdr_t *hdr = (const sensor_camera_rgb_hdr_t *)msg_buf;
-    if (hdr->width == 0 || hdr->height == 0 || hdr->channels != 3) {
+    if (hdr->width == 0 || hdr->height == 0 || (hdr->channels != 1 && hdr->channels != 3)) {
         return false;
     }
 
@@ -446,9 +450,13 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
     if (drained == 0) return;
     if (!has_sub) return;
 
-    if (ch == br->cam_rgb_ch &&
-        !bridge_validate_camera_rgb(msg_buf, last_valid_len, br->cam_rgb_buf_sz)) {
-        return;
+    if (ch == br->cam_rgb_ch) {
+        uint64_t now = now_ms();
+        if (now < br->cam_next_ms ||
+            !bridge_validate_camera_rgb(msg_buf, last_valid_len, br->cam_rgb_buf_sz)) {
+            return;
+        }
+        br->cam_next_ms = now + br->cam_interval_ms;
     }
 
     int jlen = fg_serializers[ch](msg_buf, json_buf, json_buf_sz);
@@ -605,6 +613,10 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
 
     /* Allocate dedicated heap buffers for the large camera RGB channel */
     br->cam_rgb_ch      = DRONE_TOPIC_CAM_RGB_IDX;
+    const char *fps_env = getenv("MUJOCO_DRONES_FOXGLOVE_CAMERA_FPS");
+    double cam_fps = fps_env != NULL ? strtod(fps_env, NULL) : FG_DEFAULT_CAMERA_FPS;
+    cam_fps = (cam_fps >= 1.0 && cam_fps <= 240.0) ? cam_fps : FG_DEFAULT_CAMERA_FPS;
+    br->cam_interval_ms = (uint64_t)(1000.0 / cam_fps);
     br->cam_rgb_buf_sz  = sizeof(sensor_camera_rgb_hdr_t) +
                           (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3;
     br->cam_json_buf_sz = (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 4 + 512;
