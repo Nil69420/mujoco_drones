@@ -1,4 +1,5 @@
 #include "sensors/sensors.h"
+#include "conditions/conditions.h"
 #include "sensors/noise.h"
 
 #include <math.h>
@@ -77,6 +78,11 @@ sensor_config_t sensor_default_config(void) {
     cfg.baro_alt_noise         = 0.5;
     cfg.lidar_range_noise      = 0.01;
     cfg.ir_range_noise         = 0.005;
+
+    cfg.sky_visibility         = 1.0;
+    cfg.multipath_scale        = 1.0;
+    cfg.ambient_temp_c         = 15.0;
+    cfg.sea_level_pressure_pa  = 101325.0;
 
     return cfg;
 }
@@ -256,6 +262,49 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
 
     noise_seed(&mgr->rng, 42);
 
+    mgr->sim_dt = model->opt.timestep;
+    const struct { const char *name; double rate; const char *profile; } rates[] = {
+        {"IMU", config->imu_rate, config->imu_profile},
+        {"GNSS", config->gnss_rate, config->gnss_profile},
+        {"barometer", config->baro_rate, config->baro_profile},
+    };
+    for (size_t i = 0; i < sizeof(rates) / sizeof(rates[0]); i++) {
+        if (rates[i].profile != NULL && rates[i].rate * mgr->sim_dt > 1.0 + 1e-9) {
+            fprintf(stderr, "[sensors] %s rate %.0f Hz exceeds the simulation step rate %.0f Hz\n",
+                    rates[i].name, rates[i].rate, 1.0 / mgr->sim_dt);
+            return -1;
+        }
+    }
+    mgr->sensor_temp_c = config->ambient_temp_c;
+    if (config->imu_profile != NULL) {
+        const imu_profile_t *pr = imu_profile_find(config->imu_profile);
+        if (pr == NULL || imu_model_init(&mgr->imu_model, pr, config->imu_rate, 1001) != 0) {
+            fprintf(stderr, "[sensors] unknown or unusable IMU profile '%s' at %.0f Hz\n",
+                    config->imu_profile, config->imu_rate);
+            return -1;
+        }
+        mgr->use_imu_model = true;
+    }
+    if (config->gnss_profile != NULL) {
+        const gnss_profile_t *pr = gnss_profile_find(config->gnss_profile);
+        if (pr == NULL || gnss_model_init(&mgr->gnss_model, pr, config->gnss_rate,
+                                          mgr->sim_dt, 1002) != 0) {
+            fprintf(stderr, "[sensors] unknown or unusable GNSS profile '%s' at %.0f Hz\n",
+                    config->gnss_profile, config->gnss_rate);
+            return -1;
+        }
+        mgr->use_gnss_model = true;
+    }
+    if (config->baro_profile != NULL) {
+        const baro_profile_t *pr = baro_profile_find(config->baro_profile);
+        if (pr == NULL || baro_model_init(&mgr->baro_model, pr, config->baro_rate, 1003) != 0) {
+            fprintf(stderr, "[sensors] unknown or unusable barometer profile '%s' at %.0f Hz\n",
+                    config->baro_profile, config->baro_rate);
+            return -1;
+        }
+        mgr->use_baro_model = true;
+    }
+
     printf("[sensors] initialized: IMU=%d GNSS=%d Baro=%d LiDAR=%d "
            "Camera=%d IR=%d Command=%d\n",
            mgr->config.enable.imu,    mgr->config.enable.gnss,
@@ -271,9 +320,16 @@ static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     msg.header.sequence     = mgr->seq_imu++;
     msg.header.sensor_id    = SENSOR_ID_IMU;
 
-    double dt = 0.001;
+    double dt = 1.0 / mgr->config.imu_rate;
 
-    for (int i = 0; i < 3; i++) {
+    if (mgr->use_imu_model) {
+        const double zero[3] = {0.0, 0.0, 0.0};
+        imu_model_step(&mgr->imu_model, &data->sensordata[mgr->adr_gyro],
+                       &data->sensordata[mgr->adr_accel], mgr->sensor_temp_c, zero, zero,
+                       msg.gyro, msg.accel);
+    }
+
+    for (int i = 0; i < 3 && !mgr->use_imu_model; i++) {
         double bias_g = noise_random_walk(&mgr->rng, &mgr->gyro_bias[i],
                                           mgr->config.imu_gyro_bias_diffusion,
                                           dt);
@@ -296,6 +352,37 @@ static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
 
     mgr->imu_latest = msg;
     transport_publish(&mgr->pub_imu, &msg, sizeof(msg));
+}
+
+static void step_gnss_model(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
+    double pos[3];
+    double vel[3] = {0.0, 0.0, 0.0};
+    memcpy(pos, &data->sensordata[mgr->adr_pos], sizeof(pos));
+    if (mgr->adr_linvel >= 0) {
+        memcpy(vel, &data->sensordata[mgr->adr_linvel], sizeof(vel));
+    }
+    gnss_env_t env = {mgr->config.sky_visibility, mgr->config.multipath_scale,
+                      mgr->config.rtk_corrections};
+    gnss_sample_t smp;
+    if (gnss_model_step(&mgr->gnss_model, data->time, pos, vel, &env, &smp) == 0) {
+        return;
+    }
+    static const double R_EARTH = 6371000.0;
+    double lat0_rad = mgr->config.gnss_origin_lat * M_PI / 180.0;
+    sensor_gnss_t msg = {0};
+    msg.header.timestamp_ns = t_ns;
+    msg.header.sequence     = mgr->seq_gnss++;
+    msg.header.sensor_id    = SENSOR_ID_GNSS;
+    msg.latitude  = mgr->config.gnss_origin_lat + (smp.pos_enu[1] / R_EARTH) * (180.0 / M_PI);
+    msg.longitude = mgr->config.gnss_origin_lon +
+                    (smp.pos_enu[0] / (R_EARTH * cos(lat0_rad))) * (180.0 / M_PI);
+    msg.altitude  = mgr->config.gnss_origin_alt + smp.pos_enu[2];
+    memcpy(msg.velocity, smp.vel_enu, sizeof(msg.velocity));
+    msg.fix_type       = (uint8_t)(smp.fix >= GNSS_FIX_3D ? 3 : 0);
+    msg.num_satellites = (uint8_t)smp.satellites;
+    msg.hdop           = smp.hdop;
+    mgr->gnss_latest = msg;
+    transport_publish(&mgr->pub_gnss, &msg, sizeof(msg));
 }
 
 static void read_gnss(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
@@ -340,13 +427,21 @@ static void read_baro(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     msg.header.sequence     = mgr->seq_baro++;
     msg.header.sensor_id    = SENSOR_ID_BARO;
 
-    double alt = data->sensordata[mgr->adr_pos + 2]
-               + mgr->config.gnss_origin_alt
-               + noise_gaussian(&mgr->rng, mgr->config.baro_alt_noise);
-
-    msg.altitude_m    = alt;
-    msg.temperature_c = 15.0;
-    msg.pressure_pa = 101325.0 * pow(1.0 - 0.0065 * alt / 288.15, 5.2561);
+    double true_alt = data->sensordata[mgr->adr_pos + 2] + mgr->config.gnss_origin_alt;
+    if (mgr->use_baro_model) {
+        atmosphere_sample_t atm = atmosphere_at(mgr->config.ambient_temp_c,
+                                                mgr->config.sea_level_pressure_pa, true_alt);
+        msg.pressure_pa = baro_model_step(&mgr->baro_model, atm.pressure_pa,
+                                          mgr->sensor_temp_c, 0.0);
+        msg.altitude_m = baro_pressure_to_altitude(msg.pressure_pa,
+                                                   mgr->config.sea_level_pressure_pa);
+        msg.temperature_c = atm.temp_c;
+    } else {
+        double alt = true_alt + noise_gaussian(&mgr->rng, mgr->config.baro_alt_noise);
+        msg.altitude_m    = alt;
+        msg.temperature_c = 15.0;
+        msg.pressure_pa = 101325.0 * pow(1.0 - 0.0065 * alt / 288.15, 5.2561);
+    }
 
     mgr->baro_latest = msg;
     transport_publish(&mgr->pub_baro, &msg, sizeof(msg));
@@ -444,7 +539,9 @@ void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
         read_imu(mgr, data, t_ns);
     }
 
-    if (mgr->config.enable.gnss && mgr->inv_gnss > 0 && --mgr->dec_gnss <= 0) {
+    if (mgr->config.enable.gnss && mgr->use_gnss_model) {
+        step_gnss_model(mgr, data, t_ns);
+    } else if (mgr->config.enable.gnss && mgr->inv_gnss > 0 && --mgr->dec_gnss <= 0) {
         mgr->dec_gnss = mgr->inv_gnss;
         read_gnss(mgr, data, t_ns);
     }

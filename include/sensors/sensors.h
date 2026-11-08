@@ -7,6 +7,9 @@
 
 #include "sensors/sensor_types.h"
 #include "sensors/noise.h"
+#include "sensors/models/baro_model.h"
+#include "sensors/models/gnss_model.h"
+#include "sensors/models/imu_model.h"
 #include "transport/transport.h"
 #include "setpoint.h"
 
@@ -48,6 +51,15 @@ typedef struct {
     double baro_alt_noise;
     double lidar_range_noise;
     double ir_range_noise;
+
+    const char *imu_profile;
+    const char *gnss_profile;
+    const char *baro_profile;
+    double sky_visibility;
+    double multipath_scale;
+    int rtk_corrections;
+    double ambient_temp_c;
+    double sea_level_pressure_pa;
 } sensor_config_t;
 
 typedef struct {
@@ -105,6 +117,13 @@ typedef struct {
     sensor_baro_t baro_latest;
 
     noise_rng_t rng;
+
+    double sim_dt;
+    double sensor_temp_c;
+    imu_model_t  imu_model;
+    gnss_model_t gnss_model;
+    baro_model_t baro_model;
+    bool use_imu_model, use_gnss_model, use_baro_model;
 } sensor_mgr_t;
 
 sensor_config_t sensor_default_config(void);

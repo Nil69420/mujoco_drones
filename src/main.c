@@ -30,6 +30,10 @@ static void print_usage(const char *prog) {
     printf("  --cam-height H   Camera height in pixels (default 360)\n");
     printf("  --cam-fps F      Camera FPS (default 8.0)\n");
     printf("  --scenario FILE  Run a composable multi-vehicle scenario\n");
+    printf("  --imu NAME       IMU profile (see --list-sensors); --imu-rate HZ (default 1000)\n");
+    printf("  --gnss NAME      GNSS profile; --gnss-rate HZ (default 10)\n");
+    printf("  --baro NAME      Barometer profile; --baro-rate HZ (default 50)\n");
+    printf("  --list-sensors   List available sensor profiles and exit\n");
 #endif
     printf("  -h, --help       Show this help\n\n");
     printf("Interactive controls:\n");
@@ -70,9 +74,30 @@ typedef struct {
     int         cam_w;
     int         cam_h;
     double      cam_fps;
+    const char *imu_name;
+    const char *gnss_name;
+    const char *baro_name;
+    double      imu_rate;
+    double      gnss_rate;
+    double      baro_rate;
+    bool        list_sensors;
     const char *scenario_path;
 #endif
 } cli_args_t;
+
+#ifdef ENABLE_IPC
+static void list_sensor_profiles(void) {
+    printf("IMU (--imu):\n");
+    for (size_t i = 0; i < IMU_PROFILE_COUNT; i++)
+        printf("  %-12s %-12s max %.0f Hz\n", IMU_PROFILES[i].name, IMU_PROFILES[i].grade, IMU_PROFILES[i].max_odr_hz);
+    printf("GNSS (--gnss):\n");
+    for (size_t i = 0; i < GNSS_PROFILE_COUNT; i++)
+        printf("  %-12s %-12s max %.0f Hz\n", GNSS_PROFILES[i].name, GNSS_PROFILES[i].grade, GNSS_PROFILES[i].max_rate_hz);
+    printf("Barometer (--baro):\n");
+    for (size_t i = 0; i < BARO_PROFILE_COUNT; i++)
+        printf("  %-12s %-12s max %.0f Hz\n", BARO_PROFILES[i].name, BARO_PROFILES[i].grade, BARO_PROFILES[i].max_rate_hz);
+}
+#endif
 
 static int parse_args(int argc, char **argv, cli_args_t *args) {
     args->headless   = false;
@@ -86,6 +111,9 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
     args->cam_w      = 640;
     args->cam_h      = 360;
     args->cam_fps    = 8.0;
+    args->imu_rate   = 1000.0;
+    args->gnss_rate  = 10.0;
+    args->baro_rate  = 50.0;
     args->scenario_path = NULL;
 #endif
 
@@ -99,6 +127,13 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
         else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { args->lidar_rays = (int)strtol(argv[++i], NULL, 10); }
         else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { args->cam_w = (int)strtol(argv[++i], NULL, 10); }
         else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { args->cam_h = (int)strtol(argv[++i], NULL, 10); }
+        else if (!strcmp(argv[i], "--imu")        && i+1 < argc) { args->imu_name = argv[++i]; }
+        else if (!strcmp(argv[i], "--gnss")       && i+1 < argc) { args->gnss_name = argv[++i]; }
+        else if (!strcmp(argv[i], "--baro")       && i+1 < argc) { args->baro_name = argv[++i]; }
+        else if (!strcmp(argv[i], "--imu-rate")   && i+1 < argc) { args->imu_rate = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--gnss-rate")  && i+1 < argc) { args->gnss_rate = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--baro-rate")  && i+1 < argc) { args->baro_rate = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--list-sensors")) { args->list_sensors = true; }
         else if (!strcmp(argv[i], "--cam-fps")    && i+1 < argc) { args->cam_fps = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--scenario")   && i+1 < argc) { args->scenario_path = argv[++i]; }
 #endif
@@ -179,6 +214,10 @@ int main(int argc, char **argv) {
     if (parse_rc < 0) return 1;
 
 #ifdef ENABLE_IPC
+    if (args.list_sensors) {
+        list_sensor_profiles();
+        return 0;
+    }
     if (args.scenario_path) {
         return scenario_main_run(args.scenario_path, args.headless,
                                  args.duration_set ? args.duration : 0.0);
@@ -235,6 +274,12 @@ int main(int argc, char **argv) {
             scfg.camera_height = (uint16_t)args.cam_h;
 #endif
             scfg.camera_rate    = args.cam_fps;
+            scfg.imu_profile    = args.imu_name;
+            scfg.gnss_profile   = args.gnss_name;
+            scfg.baro_profile   = args.baro_name;
+            scfg.imu_rate       = args.imu_rate;
+            scfg.gnss_rate      = args.gnss_rate;
+            scfg.baro_rate      = args.baro_rate;
 
             if (args.headless) {
                 scfg.enable.camera = false;
@@ -250,6 +295,12 @@ int main(int argc, char **argv) {
             if (sensor_init(&sim.sensors, sim.model,
                             &sim.transport, &scfg, NULL) != 0) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
+                if (args.imu_name != NULL || args.gnss_name != NULL || args.baro_name != NULL) {
+                    transport_shutdown(&sim.transport);
+                    mj_deleteData(sim.data);
+                    mj_deleteModel(sim.model);
+                    return 1;
+                }
                 sim.ipc_enabled = false;
             }
         }
