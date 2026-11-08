@@ -10,6 +10,8 @@
 #include "sensors/models/baro_model.h"
 #include "sensors/models/gnss_model.h"
 #include "sensors/models/imu_model.h"
+#include "sensors/models/mag_model.h"
+#include "conditions/conditions.h"
 #include "transport/transport.h"
 #include "setpoint.h"
 
@@ -55,6 +57,11 @@ typedef struct {
     const char *imu_profile;
     const char *gnss_profile;
     const char *baro_profile;
+    const char *mag_profile;
+    double mag_rate;
+    const char *weather;
+    double vibration_scale;
+    double mag_field_enu_ut[3];
     double sky_visibility;
     double multipath_scale;
     int rtk_corrections;
@@ -123,7 +130,19 @@ typedef struct {
     imu_model_t  imu_model;
     gnss_model_t gnss_model;
     baro_model_t baro_model;
-    bool use_imu_model, use_gnss_model, use_baro_model;
+    bool use_imu_model, use_gnss_model, use_baro_model, use_mag_model;
+    mag_model_t  mag_model;
+    int          mag_every;
+    int          mag_count;
+    double       mag_hold[3];
+    thermal_t    thermal;
+    vibration_t  vibration;
+    bool         use_vibration;
+    int          act_thrust[4];
+    double       thrust_max;
+    double       vib_accel[3];
+    double       vib_gyro[3];
+    double       thrust_fraction;
 } sensor_mgr_t;
 
 sensor_config_t sensor_default_config(void);

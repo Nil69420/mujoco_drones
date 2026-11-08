@@ -33,6 +33,9 @@ static void print_usage(const char *prog) {
     printf("  --imu NAME       IMU profile (see --list-sensors); --imu-rate HZ (default 1000)\n");
     printf("  --gnss NAME      GNSS profile; --gnss-rate HZ (default 10)\n");
     printf("  --baro NAME      Barometer profile; --baro-rate HZ (default 50)\n");
+    printf("  --mag NAME       Magnetometer profile; --mag-rate HZ (default 100)\n");
+    printf("  --weather NAME   Weather preset (ambient temperature and pressure)\n");
+    printf("  --vibration S    Motor vibration scale (0 = off, 1 = nominal)\n");
     printf("  --list-sensors   List available sensor profiles and exit\n");
 #endif
     printf("  -h, --help       Show this help\n\n");
@@ -77,6 +80,10 @@ typedef struct {
     const char *imu_name;
     const char *gnss_name;
     const char *baro_name;
+    const char *mag_name;
+    double      mag_rate;
+    const char *weather;
+    double      vibration;
     double      imu_rate;
     double      gnss_rate;
     double      baro_rate;
@@ -93,6 +100,12 @@ static void list_sensor_profiles(void) {
     printf("GNSS (--gnss):\n");
     for (size_t i = 0; i < GNSS_PROFILE_COUNT; i++)
         printf("  %-12s %-12s max %.0f Hz\n", GNSS_PROFILES[i].name, GNSS_PROFILES[i].grade, GNSS_PROFILES[i].max_rate_hz);
+    printf("Magnetometer (--mag):\n");
+    for (size_t i = 0; i < MAG_PROFILE_COUNT; i++)
+        printf("  %-12s %-12s max %.0f Hz\n", MAG_PROFILES[i].name, MAG_PROFILES[i].grade, MAG_PROFILES[i].max_rate_hz);
+    printf("Weather (--weather):\n");
+    for (size_t i = 0; i < CONDITIONS_PRESET_COUNT; i++)
+        printf("  %-14s %5.1f C, wind %.1f m/s\n", CONDITIONS_PRESETS[i].name, CONDITIONS_PRESETS[i].ambient_temp_c, CONDITIONS_PRESETS[i].wind_speed_20ft_ms);
     printf("Barometer (--baro):\n");
     for (size_t i = 0; i < BARO_PROFILE_COUNT; i++)
         printf("  %-12s %-12s max %.0f Hz\n", BARO_PROFILES[i].name, BARO_PROFILES[i].grade, BARO_PROFILES[i].max_rate_hz);
@@ -113,6 +126,7 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
     args->cam_fps    = 8.0;
     args->imu_rate   = 1000.0;
     args->gnss_rate  = 10.0;
+    args->mag_rate   = 100.0;
     args->baro_rate  = 50.0;
     args->scenario_path = NULL;
 #endif
@@ -130,6 +144,10 @@ static int parse_args(int argc, char **argv, cli_args_t *args) {
         else if (!strcmp(argv[i], "--imu")        && i+1 < argc) { args->imu_name = argv[++i]; }
         else if (!strcmp(argv[i], "--gnss")       && i+1 < argc) { args->gnss_name = argv[++i]; }
         else if (!strcmp(argv[i], "--baro")       && i+1 < argc) { args->baro_name = argv[++i]; }
+        else if (!strcmp(argv[i], "--mag")        && i+1 < argc) { args->mag_name = argv[++i]; }
+        else if (!strcmp(argv[i], "--mag-rate")   && i+1 < argc) { args->mag_rate = strtod(argv[++i], NULL); }
+        else if (!strcmp(argv[i], "--weather")    && i+1 < argc) { args->weather = argv[++i]; }
+        else if (!strcmp(argv[i], "--vibration")  && i+1 < argc) { args->vibration = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--imu-rate")   && i+1 < argc) { args->imu_rate = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--gnss-rate")  && i+1 < argc) { args->gnss_rate = strtod(argv[++i], NULL); }
         else if (!strcmp(argv[i], "--baro-rate")  && i+1 < argc) { args->baro_rate = strtod(argv[++i], NULL); }
@@ -277,6 +295,10 @@ int main(int argc, char **argv) {
             scfg.imu_profile    = args.imu_name;
             scfg.gnss_profile   = args.gnss_name;
             scfg.baro_profile   = args.baro_name;
+            scfg.mag_profile    = args.mag_name;
+            scfg.mag_rate       = args.mag_rate;
+            scfg.weather        = args.weather;
+            scfg.vibration_scale = args.vibration;
             scfg.imu_rate       = args.imu_rate;
             scfg.gnss_rate      = args.gnss_rate;
             scfg.baro_rate      = args.baro_rate;
@@ -295,7 +317,8 @@ int main(int argc, char **argv) {
             if (sensor_init(&sim.sensors, sim.model,
                             &sim.transport, &scfg, NULL) != 0) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
-                if (args.imu_name != NULL || args.gnss_name != NULL || args.baro_name != NULL) {
+                if (args.imu_name != NULL || args.gnss_name != NULL || args.baro_name != NULL ||
+                    args.mag_name != NULL || args.weather != NULL || args.vibration > 0.0) {
                     transport_shutdown(&sim.transport);
                     mj_deleteData(sim.data);
                     mj_deleteModel(sim.model);

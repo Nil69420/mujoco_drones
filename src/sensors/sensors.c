@@ -42,6 +42,13 @@ static int resolve_site_id(const mjModel *m, const char *prefix,
     return mj_name2id(m, mjOBJ_SITE, full);
 }
 
+#define SENSOR_ROTOR_RATED_RPM 8000.0
+#define SENSOR_VIBRATION_BASE_MS2 0.6
+#define SENSOR_MOUNT_HZ 45.0
+#define SENSOR_MOUNT_ZETA 0.15
+#define SENSOR_THERMAL_TAU_S 150.0
+#define SENSOR_SELF_HEATING_K 10.0
+
 sensor_config_t sensor_default_config(void) {
     sensor_config_t cfg = {0};
 
@@ -79,6 +86,10 @@ sensor_config_t sensor_default_config(void) {
     cfg.lidar_range_noise      = 0.01;
     cfg.ir_range_noise         = 0.005;
 
+    cfg.mag_field_enu_ut[0]    = 0.9;
+    cfg.mag_field_enu_ut[1]    = 21.4;
+    cfg.mag_field_enu_ut[2]    = -42.3;
+    cfg.mag_rate               = 100.0;
     cfg.sky_visibility         = 1.0;
     cfg.multipath_scale        = 1.0;
     cfg.ambient_temp_c         = 15.0;
@@ -275,7 +286,47 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
             return -1;
         }
     }
+    if (config->weather != NULL) {
+        const conditions_profile_t *wp = conditions_find(config->weather);
+        if (wp == NULL) {
+            fprintf(stderr, "[sensors] unknown weather preset '%s'\n", config->weather);
+            return -1;
+        }
+        mgr->config.ambient_temp_c = wp->ambient_temp_c;
+        mgr->config.sea_level_pressure_pa = wp->sea_level_pressure_pa;
+    }
+    config = &mgr->config;
+    thermal_init(&mgr->thermal, config->ambient_temp_c, SENSOR_THERMAL_TAU_S, SENSOR_SELF_HEATING_K);
     mgr->sensor_temp_c = config->ambient_temp_c;
+    if (config->mag_profile != NULL) {
+        const mag_profile_t *pr = mag_profile_find(config->mag_profile);
+        if (pr == NULL || mag_model_init(&mgr->mag_model, pr, config->mag_rate, 1004) != 0) {
+            fprintf(stderr, "[sensors] unknown or unusable magnetometer profile '%s'\n",
+                    config->mag_profile);
+            return -1;
+        }
+        mgr->mag_every = (int)lround(config->imu_rate / config->mag_rate);
+        if (mgr->mag_every < 1) mgr->mag_every = 1;
+        mgr->mag_count = 0;
+        mgr->use_mag_model = true;
+    }
+    if (config->vibration_scale > 0.0) {
+        int ok = 1;
+        char nm[16];
+        for (int i = 0; i < 4; i++) {
+            snprintf(nm, sizeof(nm), "thrust_%d", i);
+            mgr->act_thrust[i] = mj_name2id(model, mjOBJ_ACTUATOR, nm);
+            ok = ok && mgr->act_thrust[i] >= 0;
+        }
+        if (!ok || vibration_init(&mgr->vibration, 4, 2, SENSOR_ROTOR_RATED_RPM,
+                                  SENSOR_VIBRATION_BASE_MS2 * config->vibration_scale,
+                                  SENSOR_MOUNT_HZ, SENSOR_MOUNT_ZETA, 1005) != 0) {
+            fprintf(stderr, "[sensors] vibration needs actuators thrust_0..3\n");
+            return -1;
+        }
+        mgr->thrust_max = model->actuator_ctrlrange[2 * mgr->act_thrust[0] + 1];
+        mgr->use_vibration = true;
+    }
     if (config->imu_profile != NULL) {
         const imu_profile_t *pr = imu_profile_find(config->imu_profile);
         if (pr == NULL || imu_model_init(&mgr->imu_model, pr, config->imu_rate, 1001) != 0) {
@@ -314,6 +365,24 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
     return 0;
 }
 
+static void update_conditions(sensor_mgr_t *mgr, const mjData *data) {
+    double fraction = 0.0;
+    if (mgr->use_vibration && mgr->thrust_max > 0.0) {
+        double rpm[4];
+        for (int i = 0; i < 4; i++) {
+            double f = data->ctrl[mgr->act_thrust[i]] / mgr->thrust_max;
+            f = f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f);
+            rpm[i] = SENSOR_ROTOR_RATED_RPM * sqrt(f);
+            fraction += f * 0.25;
+        }
+        vibration_step(&mgr->vibration, rpm, mgr->sim_dt, mgr->vib_accel, mgr->vib_gyro);
+    }
+    mgr->thrust_fraction = fraction;
+    double heat = mgr->use_vibration ? 1.0 : 0.0;
+    mgr->thermal.self_heating_k = SENSOR_SELF_HEATING_K * heat;
+    mgr->sensor_temp_c = thermal_step(&mgr->thermal, mgr->config.ambient_temp_c, mgr->sim_dt);
+}
+
 static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     sensor_imu_t msg = {0};
     msg.header.timestamp_ns = t_ns;
@@ -325,8 +394,9 @@ static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     if (mgr->use_imu_model) {
         const double zero[3] = {0.0, 0.0, 0.0};
         imu_model_step(&mgr->imu_model, &data->sensordata[mgr->adr_gyro],
-                       &data->sensordata[mgr->adr_accel], mgr->sensor_temp_c, zero, zero,
-                       msg.gyro, msg.accel);
+                       &data->sensordata[mgr->adr_accel], mgr->sensor_temp_c,
+                       mgr->use_vibration ? mgr->vib_accel : zero,
+                       mgr->use_vibration ? mgr->vib_gyro : zero, msg.gyro, msg.accel);
     }
 
     for (int i = 0; i < 3 && !mgr->use_imu_model; i++) {
@@ -339,7 +409,27 @@ static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
                      + noise_gaussian(&mgr->rng, mgr->config.imu_gyro_noise) + bias_g;
     }
 
-    if (mgr->adr_heading >= 0) {
+    if (mgr->use_mag_model && mgr->adr_quat >= 0) {
+        const double *q = &data->sensordata[mgr->adr_quat];
+        double r[9];
+        mju_quat2Mat(r, q);
+        double field_nt[3];
+        for (int i = 0; i < 3; i++) {
+            field_nt[i] = 1000.0 * (r[i] * mgr->config.mag_field_enu_ut[0] +
+                                    r[3 + i] * mgr->config.mag_field_enu_ut[1] +
+                                    r[6 + i] * mgr->config.mag_field_enu_ut[2]);
+        }
+        if (mgr->mag_count == 0) {
+            double out_nt[3];
+            mag_model_step(&mgr->mag_model, field_nt, 8.0 * mgr->thrust_fraction,
+                           mgr->sensor_temp_c, out_nt);
+            for (int i = 0; i < 3; i++) {
+                mgr->mag_hold[i] = out_nt[i] * 1e-3;
+            }
+        }
+        mgr->mag_count = (mgr->mag_count + 1) % mgr->mag_every;
+        memcpy(msg.mag, mgr->mag_hold, sizeof(msg.mag));
+    } else if (mgr->adr_heading >= 0) {
         msg.mag[0] = data->sensordata[mgr->adr_heading];
         msg.mag[1] = data->sensordata[mgr->adr_heading + 1];
         msg.mag[2] = data->sensordata[mgr->adr_heading + 2];
@@ -432,7 +522,7 @@ static void read_baro(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
         atmosphere_sample_t atm = atmosphere_at(mgr->config.ambient_temp_c,
                                                 mgr->config.sea_level_pressure_pa, true_alt);
         msg.pressure_pa = baro_model_step(&mgr->baro_model, atm.pressure_pa,
-                                          mgr->sensor_temp_c, 0.0);
+                                          mgr->sensor_temp_c, mgr->thrust_fraction);
         msg.altitude_m = baro_pressure_to_altitude(msg.pressure_pa,
                                                    mgr->config.sea_level_pressure_pa);
         msg.temperature_c = atm.temp_c;
@@ -533,6 +623,7 @@ static void read_infrared(sensor_mgr_t *mgr, const mjModel *model,
 void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
                    setpoint_t *target) {
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
+    update_conditions(mgr, data);
 
     if (mgr->config.enable.imu && mgr->inv_imu > 0 && --mgr->dec_imu <= 0) {
         mgr->dec_imu = mgr->inv_imu;

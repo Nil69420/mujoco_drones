@@ -23,4 +23,23 @@ echo "$OUT"
 echo "$OUT" | grep -q "simulated-time rates: imu 1000.0 Hz, gnss 20.0 Hz, baro 100.0 Hz" ||
     fail "published rates differ from the configured rates"
 echo "$OUT" | grep -q "accel2 mean" || fail "no IMU statistics"
+kill $SIM 2>/dev/null || true
+wait $SIM 2>/dev/null || true
+
+run_tap() {
+    "$BIN_DIR/hummingbird" --headless --duration 40 --imu icm42688p --mag rm3100 "$@" >/dev/null 2>&1 &
+    SIM=$!
+    sleep 0.6
+    "$BIN_DIR/sensor_tap" /drone 1.2
+    kill $SIM 2>/dev/null || true
+    wait $SIM 2>/dev/null || true
+}
+CALM=$(run_tap --weather clear_calm)
+SHAKY=$(run_tap --weather hot_desert --vibration 3)
+CALM_STD=$(echo "$CALM" | awk '/accel0 mean/ {print $5}')
+SHAKY_STD=$(echo "$SHAKY" | awk '/accel0 mean/ {print $5}')
+echo "accel0 std calm=$CALM_STD vibrating=$SHAKY_STD"
+awk -v a="$CALM_STD" -v b="$SHAKY_STD" 'BEGIN { exit !(b > 2 * a) }' || fail "vibration did not raise the accelerometer noise"
+MAGZ=$(echo "$CALM" | awk '/mag2 mean/ {print $3}')
+awk -v z="$MAGZ" 'BEGIN { exit !(z < -35 && z > -50) }' || fail "magnetometer vertical component $MAGZ outside the expected Earth field"
 echo "PASS"

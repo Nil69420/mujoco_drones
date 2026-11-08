@@ -8,7 +8,7 @@
 #include <time.h>
 
 typedef struct {
-    double n, sum[6], sq[6];
+    double n, sum[9], sq[9];
 } acc_t;
 
 static void usage(const char *prog) {
@@ -61,8 +61,8 @@ int main(int argc, char **argv) {
         sensor_imu_t m;
         size_t len = 0;
         while (transport_read_next(&s_imu, &m, sizeof(m), &len) == 0 && len == sizeof(m)) {
-            double v[6] = {m.accel[0], m.accel[1], m.accel[2], m.gyro[0], m.gyro[1], m.gyro[2]};
-            for (int i = 0; i < 6; i++) { imu.sum[i] += v[i]; imu.sq[i] += v[i] * v[i]; }
+            double v[9] = {m.accel[0], m.accel[1], m.accel[2], m.gyro[0], m.gyro[1], m.gyro[2], m.mag[0], m.mag[1], m.mag[2]};
+            for (int i = 0; i < 9; i++) { imu.sum[i] += v[i]; imu.sq[i] += v[i] * v[i]; }
             imu.n += 1.0;
             if (!imu_seq_set) { imu_seq_first = m.header.sequence; imu_seq_set = 1; }
             imu_seq_last = m.header.sequence;
@@ -101,10 +101,10 @@ int main(int argc, char **argv) {
     printf("imu: %.0f msgs (%.0f Hz), sequence span %lu (%.0f%% received)\n", imu.n, imu.n / seconds,
            imu_seq_last - imu_seq_first + 1, imu.n * 100.0 / (double)(imu_seq_last - imu_seq_first + 1));
     if (imu.n > 1.0) {
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 9; i++) {
             double mean = imu.sum[i] / imu.n;
             double var = imu.sq[i] / imu.n - mean * mean;
-            printf("  %s%d mean %+9.5f std %.5f\n", i < 3 ? "accel" : "gyro", i % 3, mean, sqrt(var > 0 ? var : 0));
+            printf("  %s%d mean %+9.5f std %.5f\n", i < 3 ? "accel" : (i < 6 ? "gyro" : "mag"), i % 3, mean, sqrt(var > 0 ? var : 0));
         }
     }
     printf("gnss: %lu msgs (%.1f Hz) fix=%d sats=%d hdop=%.2f alt first %.2f last %.2f\n", gnss_n,
