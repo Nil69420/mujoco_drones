@@ -1,3 +1,4 @@
+#include "foxglove/ops.h"
 #include "foxglove/ws_proto.h"
 
 #include <stdint.h>
@@ -13,6 +14,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     uint8_t mode = data[0];
     const uint8_t *body = data + 1;
     size_t n = size - 1;
+    if ((mode & 2U) != 0) {
+        fg_op_t op;
+        (void)fg_parse_client_op((const char *)body, n, &op);
+        return 0;
+    }
     if ((mode & 1U) == 0) {
         ws_handshake_t hs;
         char *copy = malloc(n + 1);

@@ -170,6 +170,12 @@ target_compile_options(test_ws_proto PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_ws_proto PRIVATE mdmodels)
 add_test(NAME ws_proto COMMAND test_ws_proto)
 
+add_executable(test_fg_ops tests/test_fg_ops.c)
+target_include_directories(test_fg_ops PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_fg_ops PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_fg_ops PRIVATE mdmodels)
+add_test(NAME fg_ops COMMAND test_fg_ops)
+
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -288,7 +294,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto)
+    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -298,7 +304,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto)
+    foreach(tgt hummingbird send_command urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
