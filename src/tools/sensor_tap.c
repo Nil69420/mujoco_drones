@@ -44,7 +44,12 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERROR: transport init failed\n");
         return 1;
     }
-    transport_sub_t s_imu, s_gnss, s_baro;
+    transport_sub_t s_imu, s_gnss, s_baro, s_ir;
+    char t_ir[64];
+    snprintf(t_ir, sizeof(t_ir), "%s/infrared", prefix);
+    unsigned long ir_n = 0, ir_valid = 0;
+    double ir_sum = 0.0, ir_sq = 0.0;
+    float ir_rmin = 0.0F, ir_rmax = 0.0F;
     char t_cam[96];
     frame_out_name(t_cam, sizeof(t_cam), prefix, "_camera_frame");
     const char *pgm_path = argc > 3 ? argv[3] : NULL;
@@ -72,7 +77,8 @@ int main(int argc, char **argv) {
     unsigned long cam_torn = 0;
     if (transport_subscribe(&tp, t_imu, sizeof(sensor_imu_t), &s_imu) != 0 ||
         transport_subscribe(&tp, t_gnss, sizeof(sensor_gnss_t), &s_gnss) != 0 ||
-        transport_subscribe(&tp, t_baro, sizeof(sensor_baro_t), &s_baro) != 0) {
+        transport_subscribe(&tp, t_baro, sizeof(sensor_baro_t), &s_baro) != 0 ||
+        transport_subscribe(&tp, t_ir, sizeof(sensor_infrared_t), &s_ir) != 0) {
         fprintf(stderr, "ERROR: subscribe failed\n");
         transport_shutdown(&tp);
         return 1;
@@ -121,6 +127,18 @@ int main(int argc, char **argv) {
             if (ts_b0 == 0) ts_b0 = b.header.timestamp_ns;
             ts_b1 = b.header.timestamp_ns;
             baro.n += 1.0;
+            got = 1;
+        }
+        sensor_infrared_t ir;
+        for (int burst = 0; burst < 64 && transport_read_next(&s_ir, &ir, sizeof(ir), &len) == 0 && len == sizeof(ir); burst++) {
+            ir_n++;
+            ir_rmin = ir.range_min;
+            ir_rmax = ir.range_max;
+            if (ir.range_m >= 0.0F) {
+                ir_valid++;
+                ir_sum += (double)ir.range_m;
+                ir_sq += (double)ir.range_m * (double)ir.range_m;
+            }
             got = 1;
         }
         for (int burst = 0; burst < 4 && have_cam; burst++) {
@@ -192,6 +210,13 @@ int main(int argc, char **argv) {
                "simulated-time rate %.1f fps\n", cam_n, cam_torn, cam_w, cam_h_px, cam_ch, cam_mean, cam_gaps,
                cam_t1 > cam_t0 ? (double)(cam_seq1 - cam_seq0) * 1e9 / (double)(cam_t1 - cam_t0) : 0.0);
     }
+    if (ir_n > 0) {
+        double mean = ir_valid > 0 ? ir_sum / (double)ir_valid : 0.0;
+        double var = ir_valid > 0 ? ir_sq / (double)ir_valid - mean * mean : 0.0;
+        printf("infrared: %lu readings, %lu valid, mean %.3f m std %.4f m, limits %.2f..%.1f m\n", ir_n, ir_valid, mean,
+               sqrt(var > 0.0 ? var : 0.0), (double)ir_rmin, (double)ir_rmax);
+    }
+    transport_close_sub(&s_ir);
     if (have_cam) renoir_frame_close(cam_h);
     transport_close_sub(&s_imu);
     transport_close_sub(&s_gnss);

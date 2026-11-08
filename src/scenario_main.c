@@ -151,6 +151,7 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
             const biome_climate_t *cl = &env->biome->climate;
             veh->sensor_cfg.weather = cl->default_weather;
             veh->sensor_cfg.sky_visibility = cl->sky_visibility;
+            veh->sensor_cfg.ground_reflectivity = cl->ground_reflectivity;
             veh->sensor_cfg.multipath_scale = cl->multipath_scale;
         }
         if (scenario->weather[0] != '\0') {
@@ -161,6 +162,7 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
         veh->sensor_cfg.gnss_cold_start = as->gnss_cold_start != 0;
         veh->sensor_cfg.rtk_corrections = as->gnss_rtk;
         veh->sensor_cfg.baro_profile = as->baro[0] != '\0' ? as->baro : NULL;
+        veh->sensor_cfg.range_profile = as->rangefinder[0] != '\0' ? as->rangefinder : NULL;
         veh->sensor_cfg.mag_profile = as->mag[0] != '\0' ? as->mag : NULL;
         veh->sensor_cfg.vibration_scale = as->vibration;
         {

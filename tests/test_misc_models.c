@@ -134,6 +134,15 @@ static void test_mag(void) {
 }
 
 static void test_range(void) {
+    for (size_t i = 0; i < RANGE_PROFILE_COUNT; i++) {
+        const range_profile_t *rp = &RANGE_PROFILES[i];
+        CHECK(rp->max_range_90_m > rp->min_range_m && rp->max_range_10_m <= rp->max_range_90_m);
+        CHECK(rp->max_rate_hz > 0.0 && rp->resolution_m >= 0.0);
+    }
+    CHECK(range_profile_find("tf02_pro") != NULL && range_profile_find("lidar_lite_v3") != NULL &&
+          range_profile_find("sf11_c") != NULL);
+    CHECK_NEAR(range_effective_max(range_profile_find("tf02_pro"), 0.1), 13.5, 0.05);
+    CHECK_NEAR(range_effective_max(range_profile_find("tf02_pro"), 0.9), 40.0, 0.05);
     const range_profile_t *tf = range_profile_find("tfmini_s");
     CHECK(tf != NULL && range_profile_find("nope") == NULL);
     range_model_t m;

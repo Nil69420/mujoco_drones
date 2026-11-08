@@ -134,6 +134,8 @@ static int handle_key_value(const parse_ctx_t *ctx, parse_state_t *state,
             }
         } else if (strcmp(key, "baro") == 0) {
             snprintf(veh->baro, sizeof(veh->baro), "%s", value);
+        } else if (strcmp(key, "rangefinder") == 0) {
+            snprintf(veh->rangefinder, sizeof(veh->rangefinder), "%s", value);
         } else if (strcmp(key, "mag") == 0) {
             snprintf(veh->mag, sizeof(veh->mag), "%s", value);
         } else if (strcmp(key, "vibration") == 0) {

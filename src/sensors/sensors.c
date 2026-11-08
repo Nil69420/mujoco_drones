@@ -93,6 +93,7 @@ sensor_config_t sensor_default_config(void) {
     cfg.mag_field_enu_ut[2]    = -42.3;
     cfg.camera_exposure_s      = 0.004;
     cfg.mag_rate               = 0.0;
+    cfg.ground_reflectivity    = 0.3;
     cfg.sky_visibility         = 1.0;
     cfg.multipath_scale        = 1.0;
     cfg.ambient_temp_c         = 15.0;
@@ -352,6 +353,15 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
         if (mgr->mag_every < 1) mgr->mag_every = 1;
         mgr->mag_count = 0;
         mgr->use_mag_model = true;
+    }
+    if (config->range_profile != NULL) {
+        const range_profile_t *pr = range_profile_find(config->range_profile);
+        if (pr == NULL || range_model_init(&mgr->range_model, pr, config->infrared_rate, 1007) != 0) {
+            fprintf(stderr, "[sensors] unknown or unusable rangefinder profile '%s' at %.0f Hz\n",
+                    config->range_profile, config->infrared_rate);
+            return -1;
+        }
+        mgr->use_range_model = true;
     }
     if (config->vibration_scale > 0.0) {
         int ok = 1;
@@ -657,7 +667,18 @@ static void read_infrared(sensor_mgr_t *mgr, const mjModel *model,
     mjtNum dist = mj_ray(model, data, site_pos, dir_world,
                          NULL, 1, mgr->body_base, &geomid, NULL);
 
-    if (dist >= 0 && dist <= (double)msg.range_max) {
+    if (mgr->use_range_model) {
+        const range_profile_t *rp = mgr->range_model.profile;
+        msg.range_min = (float)rp->min_range_m;
+        msg.range_max = (float)rp->max_range_90_m;
+        double reading = 0.0;
+        if (dist >= 0 && range_model_step(&mgr->range_model, dist, mgr->config.ground_reflectivity,
+                                          &reading)) {
+            msg.range_m = (float)reading;
+        } else {
+            msg.range_m = -1.0F;
+        }
+    } else if (dist >= 0 && dist <= (double)msg.range_max) {
         msg.range_m = (float)dist
                     + (float)noise_gaussian(&mgr->rng, mgr->config.ir_range_noise);
     } else {

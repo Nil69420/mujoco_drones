@@ -42,6 +42,17 @@ echo "accel0 std calm=$CALM_STD vibrating=$SHAKY_STD"
 awk -v a="$CALM_STD" -v b="$SHAKY_STD" 'BEGIN { d = b * b - a * a; exit !(d > 0 && sqrt(d) > 0.05) }' || fail "vibration did not add accelerometer noise"
 MAGZ=$(echo "$CALM" | awk '/mag2 mean/ {print $3}')
 awk -v z="$MAGZ" 'BEGIN { exit !(z < -35 && z > -50) }' || fail "magnetometer vertical component $MAGZ outside the expected Earth field"
+"$BIN_DIR/hummingbird" --headless --duration 15 --altitude 3 --rangefinder tf02_pro --rangefinder-rate 100 >/dev/null 2>&1 &
+SIM=$!
+sleep 4
+IR=$("$BIN_DIR/sensor_tap" /drone 1.5)
+kill $SIM 2>/dev/null || true
+wait $SIM 2>/dev/null || true
+echo "$IR" | grep "infrared:"
+IR_MEAN=$(echo "$IR" | sed -n 's/.*infrared:.*valid, mean \([0-9.]*\) m.*/\1/p')
+awk -v m="$IR_MEAN" 'BEGIN { exit !(m > 1.5 && m < 6.0) }' || fail "rangefinder reads $IR_MEAN m for a drone hovering near 3 m"
+echo "$IR" | grep -q "limits 0.10..40.0 m" || fail "rangefinder limits do not match the tf02_pro profile"
+
 "$BIN_DIR/hummingbird" --headless --duration 20 --cam-width 1280 --cam-height 720 --cam-fps 120 \
     --cam-profile ar0234 >/dev/null 2>&1 &
 SIM=$!

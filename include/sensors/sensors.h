@@ -11,6 +11,7 @@
 #include "sensors/models/gnss_model.h"
 #include "sensors/models/imu_model.h"
 #include "sensors/models/mag_model.h"
+#include "sensors/models/range_model.h"
 #include "conditions/conditions.h"
 #include "sensors/camera_egl.h"
 #include "sensors/models/camera_model.h"
@@ -62,6 +63,8 @@ typedef struct {
     bool gnss_cold_start;
     const char *baro_profile;
     const char *mag_profile;
+    const char *range_profile;
+    double ground_reflectivity;
     double mag_rate;
     const char *weather;
     const char *camera_profile;
@@ -144,6 +147,8 @@ typedef struct {
     baro_model_t baro_model;
     bool use_imu_model, use_gnss_model, use_baro_model, use_mag_model;
     mag_model_t  mag_model;
+    range_model_t range_model;
+    bool use_range_model;
     int          mag_every;
     int          mag_count;
     double       mag_hold[3];
