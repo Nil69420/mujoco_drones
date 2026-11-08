@@ -66,7 +66,7 @@ void kf_axis_predict(kf_axis_t *axis, double accel, double dt) {
     matrix_t next = {{0}};
     mat_mul(size, trans, axis->cov, scratch);
     mat_mul_transpose(size, scratch, trans, next);
-    double gain[2] = {0.5 * dt * dt, dt};
+    const double gain[2] = {0.5 * dt * dt, dt};
     double accel_var = KF_ACCEL_SIGMA * KF_ACCEL_SIGMA;
     for (int row = 0; row < 2; row++) {
         for (int col = 0; col < 2; col++) {

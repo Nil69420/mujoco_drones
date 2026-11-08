@@ -204,7 +204,7 @@ void sensor_read_lidar(sensor_mgr_t *mgr, const mjModel *model,
 
     for (int i = 0; i < nrays; i++) {
         float angle = msg.angle_min + (float)i * angle_step;
-        double dir_local[3] = { (double)cosf(angle), (double)sinf(angle), 0.0 };
+        const double dir_local[3] = { (double)cosf(angle), (double)sinf(angle), 0.0 };
 
         double dir_world[3];
         for (int row = 0; row < 3; row++) {

@@ -52,8 +52,9 @@ int camera_model_init(camera_model_t *model, const camera_profile_t *profile, in
     for (size_t i = 0; i < CAMERA_NOISE_TABLE; i++) {
         model->noise_table[i] = (float)noise_gaussian(&rng, 1.0);
     }
-    memcpy(model->noise_table + CAMERA_NOISE_TABLE, model->noise_table,
-           CAMERA_NOISE_TABLE * sizeof(float));
+    for (size_t idx = 0; idx < CAMERA_NOISE_TABLE; idx++) {
+        model->noise_table[CAMERA_NOISE_TABLE + idx] = model->noise_table[idx];
+    }
     double cx = 0.5 * (double)(width - 1);
     double cy = 0.5 * (double)(height - 1);
     double r2max = cx * cx + cy * cy;
