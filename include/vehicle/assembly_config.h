@@ -19,6 +19,7 @@ typedef struct {
     char rangefinder[ASSEMBLY_MAX_NAME_LEN];
     char bridge[ASSEMBLY_MAX_NAME_LEN];
     double bridge_port;
+    double bridge_speed;
     double vibration;
     double target_pos[3];
     int has_target;

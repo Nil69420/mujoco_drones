@@ -1,14 +1,78 @@
 #include "bridge/ap_scenario.h"
 
 #include "bridge/ap_runner.h"
+#include "bridge/px4_runner.h"
 
 #include <math.h>
-#include <signal.h>
+#include <stdbool.h>
 #include <mujoco/mujoco.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
-enum { BRIDGE_IDLE_TIMEOUT_MS = 120000, MAX_UDP_PORT = 65535 };
+enum { BRIDGE_IDLE_TIMEOUT_MS = 120000, MAX_UDP_PORT = 65535, EXCHANGE_TIMEOUT_MS = 200 };
+
+static const double MIN_SLEEP_S = 0.0005;
+static const double MAX_SPEED = 1000.0;
+
+typedef void (*tick_fn)(void *ctx);
+
+typedef struct {
+    const char *name;
+    unsigned default_port;
+    void *(*create)(uint16_t port);
+    int (*exchange)(void *runner, const vehicle_t *vehicle, const mjModel *model, mjData *data,
+                    tick_fn tick, void *ctx, int timeout_ms);
+    uint16_t (*port)(const void *runner);
+    void (*destroy)(void *runner);
+    int exchanged;
+    int failed;
+} bridge_ops_t;
+
+static void *ap_create(uint16_t port) {
+    ap_map_t map = ap_map_quad_plus();
+    return ap_runner_create(&map, port);
+}
+
+static int ap_exchange(void *runner, const vehicle_t *vehicle, const mjModel *model, mjData *data,
+                       tick_fn tick, void *ctx, int timeout_ms) {
+    return ap_runner_exchange(runner, vehicle, model, data, tick, ctx, timeout_ms);
+}
+
+static uint16_t ap_port(const void *runner) {
+    return ap_runner_port(runner);
+}
+
+static void ap_destroy(void *runner) {
+    ap_runner_destroy(runner);
+}
+
+static void *px4_create(uint16_t port) {
+    ap_map_t map = ap_map_quad_direct();
+    px4_home_t home = px4_home_default();
+    return px4_runner_create(&map, &home, port);
+}
+
+static int px4_exchange(void *runner, const vehicle_t *vehicle, const mjModel *model, mjData *data,
+                        tick_fn tick, void *ctx, int timeout_ms) {
+    return px4_runner_exchange(runner, vehicle, model, data, tick, ctx, timeout_ms);
+}
+
+static uint16_t px4_port(const void *runner) {
+    return px4_runner_port(runner);
+}
+
+static void px4_destroy(void *runner) {
+    px4_runner_destroy(runner);
+}
+
+static const bridge_ops_t BRIDGES[] = {
+    {"ardupilot", AP_JSON_DEFAULT_PORT, ap_create, ap_exchange, ap_port, ap_destroy,
+     AP_RUNNER_EXCHANGED, AP_RUNNER_FAILED},
+    {"px4", PX4_BRIDGE_DEFAULT_PORT, px4_create, px4_exchange, px4_port, px4_destroy,
+     PX4_RUNNER_EXCHANGED, PX4_RUNNER_FAILED},
+};
 
 static volatile sig_atomic_t g_stop = 0;
 
@@ -41,45 +105,105 @@ static void bridge_tick(void *ctx) {
     mj_step(tick->model, tick->data);
 }
 
-int ap_scenario_run(scenario_t *scenario, vehicle_t *vehicles, const mjModel *model,
-                       mjData *data, int bridged) {
-    double requested = scenario->vehicles[bridged].bridge_port;
-    unsigned port = AP_JSON_DEFAULT_PORT;
-    if (requested != 0.0) {
-        if (!(requested >= 1.0 && requested <= MAX_UDP_PORT) || requested != floor(requested)) {
-            fprintf(stderr, "[scenario] ERROR: bridge_port must be an integer from 1 to 65535\n");
-            return 1;
+static const bridge_ops_t *find_ops(const char *name) {
+    for (size_t i = 0; i < sizeof(BRIDGES) / sizeof(BRIDGES[0]); i++) {
+        if (strcmp(BRIDGES[i].name, name) == 0) {
+            return &BRIDGES[i];
         }
-        port = (unsigned)requested;
     }
-    ap_map_t map = ap_map_quad_plus();
-    ap_runner_t *runner = ap_runner_create(&map, (uint16_t)port);
-    if (runner == NULL) {
-        fprintf(stderr, "[scenario] ERROR: cannot open the ArduPilot link on port %u\n",
-                port);
-        return 1;
+    return NULL;
+}
+
+static int pick_port(const vehicle_assembly_spec_t *spec, const bridge_ops_t *ops, unsigned *port) {
+    double requested = spec->bridge_port;
+    *port = ops->default_port;
+    if (requested == 0.0) {
+        return 0;
     }
-    printf("[scenario] ArduPilot JSON link listening on 127.0.0.1:%u\n", (unsigned)ap_runner_port(runner));
+    if (!(requested >= 1.0 && requested <= MAX_UDP_PORT) || requested != floor(requested)) {
+        fprintf(stderr, "[scenario] ERROR: bridge_port must be an integer from 1 to 65535\n");
+        return -1;
+    }
+    *port = (unsigned)requested;
+    return 0;
+}
+
+static int check_speed(const vehicle_assembly_spec_t *spec) {
+    if (spec->bridge_speed < 0.0 || spec->bridge_speed > MAX_SPEED || spec->bridge_speed != spec->bridge_speed) {
+        fprintf(stderr, "[scenario] ERROR: bridge_speed must be between 0 and %.0f\n", MAX_SPEED);
+        return -1;
+    }
+    return 0;
+}
+
+static double monotonic_s(void) {
+    struct timespec now;
+    (void)clock_gettime(CLOCK_MONOTONIC, &now);
+    return (double)now.tv_sec + 1.0e-9 * (double)now.tv_nsec;
+}
+
+static void pace(double sim_time_s, double start_s, double speed) {
+    double ahead = sim_time_s / speed - (monotonic_s() - start_s);
+    if (ahead > MIN_SLEEP_S) {
+        struct timespec delay;
+        delay.tv_sec = (time_t)ahead;
+        delay.tv_nsec = (long)((ahead - (double)delay.tv_sec) * 1.0e9);
+        (void)nanosleep(&delay, NULL);
+    }
+}
+
+static int bridge_loop(const bridge_ops_t *ops, void *runner, scenario_t *scenario,
+                       vehicle_t *vehicles, const mjModel *model, mjData *data, int bridged) {
     tick_ctx_t ctx = {scenario, vehicles, model, data};
-    int rc = 0;
+    double speed = scenario->vehicles[bridged].bridge_speed;
+    speed = speed > 0.0 ? speed : 1.0;
     int idle_ms = 0;
+    bool started = false;
+    double start_wall_s = 0.0;
+    double start_sim_s = 0.0;
     g_stop = 0;
     install_handlers();
     while (data->time < scenario->duration_s && g_stop == 0) {
-        int status = ap_runner_exchange(runner, &vehicles[bridged], model, data, bridge_tick, &ctx, 200);
-        if (status == AP_RUNNER_FAILED) {
-            rc = 1;
-            break;
+        int status = ops->exchange(runner, &vehicles[bridged], model, data, bridge_tick, &ctx,
+                                   EXCHANGE_TIMEOUT_MS);
+        if (status == ops->failed) {
+            fprintf(stderr, "[scenario] %s bridge failed at t=%.3f s\n", ops->name, data->time);
+            return 1;
         }
-        idle_ms = status == AP_RUNNER_EXCHANGED ? 0 : idle_ms + 200;
+        if (status == ops->exchanged) {
+            if (!started) {
+                started = true;
+                start_wall_s = monotonic_s();
+                start_sim_s = data->time;
+            }
+            pace(data->time - start_sim_s, start_wall_s, speed);
+        }
+        idle_ms = status == ops->exchanged ? 0 : idle_ms + EXCHANGE_TIMEOUT_MS;
         if (idle_ms >= BRIDGE_IDLE_TIMEOUT_MS) {
-            fprintf(stderr, "[scenario] no ArduPilot frame for %d s, stopping\n",
+            fprintf(stderr, "[scenario] no %s traffic for %d s, stopping\n", ops->name,
                     BRIDGE_IDLE_TIMEOUT_MS / 1000);
-            rc = 1;
-            break;
+            return 1;
         }
     }
-    ap_runner_destroy(runner);
+    return 0;
+}
+
+int ap_scenario_run(scenario_t *scenario, vehicle_t *vehicles, const mjModel *model, mjData *data,
+                    int bridged) {
+    const bridge_ops_t *ops = find_ops(scenario->vehicles[bridged].bridge);
+    unsigned port = 0;
+    if (ops == NULL || pick_port(&scenario->vehicles[bridged], ops, &port) != 0 ||
+        check_speed(&scenario->vehicles[bridged]) != 0) {
+        return 1;
+    }
+    void *runner = ops->create((uint16_t)port);
+    if (runner == NULL) {
+        fprintf(stderr, "[scenario] ERROR: cannot open the %s link on port %u\n", ops->name, port);
+        return 1;
+    }
+    printf("[scenario] %s link listening on 127.0.0.1:%u\n", ops->name, (unsigned)ops->port(runner));
+    int rc = bridge_loop(ops, runner, scenario, vehicles, model, data, bridged);
+    ops->destroy(runner);
     return rc;
 }
 
@@ -87,7 +211,7 @@ int ap_scenario_find(const scenario_t *scenario) {
     int found = -1;
     for (int i = 0; i < scenario->vehicle_count; i++) {
         if (scenario->vehicles[i].bridge[0] != '\0') {
-            if (strcmp(scenario->vehicles[i].bridge, "ardupilot") != 0 || found >= 0) {
+            if (find_ops(scenario->vehicles[i].bridge) == NULL || found >= 0) {
                 return -2;
             }
             found = i;

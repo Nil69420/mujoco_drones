@@ -2,6 +2,7 @@
 
 #include "bridge/ap_frames.h"
 #include "bridge/ap_link.h"
+#include "bridge/truth.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -41,38 +42,6 @@ uint16_t ap_runner_port(const ap_runner_t *runner) {
     return runner != NULL ? ap_link_port(runner->link) : 0;
 }
 
-static void read_truth(const ap_runner_t *runner, const vehicle_t *vehicle, const mjModel *model,
-                       mjData *data, ap_truth_t *truth) {
-    int body = vehicle->base_body_id;
-    mjtNum velocity[6];
-    memset(truth, 0, sizeof(*truth));
-    mj_forward(model, data);
-    mj_objectVelocity(model, data, mjOBJ_BODY, body, velocity, 0);
-    truth->time_s = data->time;
-    for (int i = 0; i < 3; i++) {
-        truth->position_enu_m[i] = data->xpos[3 * body + i];
-        truth->origin_enu_m[i] = runner->origin_enu[i];
-        truth->velocity_enu_mps[i] = velocity[3 + i];
-        truth->gyro_flu_rps[i] = data->sensordata[vehicle->sensors.adr_gyro + i];
-        truth->accel_flu_mps2[i] = data->sensordata[vehicle->sensors.adr_accel + i];
-    }
-    for (int i = 0; i < 9; i++) {
-        truth->rotation_body_to_world[i] = data->xmat[9 * body + i];
-    }
-}
-
-static void apply_motors(const ap_runner_t *runner, const vehicle_t *vehicle, const mjModel *model,
-                         mjData *data, const ap_servo_frame_t *frame) {
-    actuator_command_t command;
-    ap_map_apply(&runner->map, frame, &command);
-    for (int i = 0; i < command.count; i++) {
-        int index = vehicle->actuator_index[i];
-        if (index >= 0 && index < model->nu) {
-            data->ctrl[index] = command.value[i];
-        }
-    }
-}
-
 static void advance(const mjModel *model, mjData *data, ap_tick_fn tick, void *ctx,
                     unsigned rate_hz) {
     double period = 1.0 / (double)(rate_hz > 0 ? rate_hz : DEFAULT_RATE_HZ);
@@ -108,11 +77,13 @@ int ap_runner_exchange(ap_runner_t *runner, const vehicle_t *vehicle, const mjMo
         mj_resetData(model, data);
         mj_forward(model, data);
     }
-    apply_motors(runner, vehicle, model, data, &frame);
+    actuator_command_t command;
+    ap_map_apply(&runner->map, &frame, &command);
+    bridge_apply_command(vehicle, model, data, &command);
     advance(model, data, tick, ctx, frame.frame_rate);
 
     ap_truth_t truth;
-    read_truth(runner, vehicle, model, data, &truth);
+    bridge_read_truth(vehicle, model, data, runner->origin_enu, &truth);
     ap_truth_to_state(&truth, &runner->last_state);
     runner->last_frame = frame.frame_count;
     runner->have_last = true;

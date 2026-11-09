@@ -40,8 +40,11 @@ static uint16_t crc_buffer(const uint8_t *data, size_t len, uint8_t extra) {
 }
 
 size_t mav2_encode(uint8_t *out, size_t cap, const mav2_frame_t *frame) {
+    if (out == NULL || frame == NULL) {
+        return 0;
+    }
     int extra = mav2_crc_extra(frame->msgid);
-    if (out == NULL || frame == NULL || extra < 0 || frame->msgid > 0xFFFFFFU) {
+    if (extra < 0 || frame->msgid > 0xFFFFFFU) {
         return 0;
     }
     size_t len = frame->len;

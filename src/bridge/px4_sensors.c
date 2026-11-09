@@ -15,6 +15,8 @@ static const double ISA_LAPSE_K_PER_M = 0.0065;
 static const double MAX_CDEG = 36000.0;
 static const double MAX_I16 = 32767.0;
 static const double MAX_U16 = 65535.0;
+static const double PASCALS_PER_HPA = 100.0;
+static const double MICROTESLA_PER_GAUSS = 100.0;
 
 px4_home_t px4_home_default(void) {
     px4_home_t home;
@@ -95,4 +97,32 @@ void px4_gps_from_state(const ap_state_t *state, const px4_home_t *home, px4_hil
     out->cog_cdeg = clamp_u16(fmin(cog * 100.0, MAX_CDEG - 1.0));
     out->fix_type = GPS_FIX_3D;
     out->satellites = GPS_SATELLITES;
+}
+
+void px4_sensor_apply_models(px4_hil_sensor_t *sensor, const px4_model_samples_t *samples) {
+    uint32_t fields = 0;
+    if (samples->imu != NULL && samples->imu_fresh) {
+        static const double SIGN[3] = {1.0, -1.0, -1.0};
+        for (int i = 0; i < 3; i++) {
+            sensor->acc_mps2[i] = (float)(SIGN[i] * samples->imu->accel[i]);
+            sensor->gyro_rps[i] = (float)(SIGN[i] * samples->imu->gyro[i]);
+            if (samples->mag_modelled) {
+                sensor->mag_gauss[i] = (float)(SIGN[i] * samples->imu->mag[i] / MICROTESLA_PER_GAUSS);
+            }
+        }
+    }
+    fields |= PX4_FIELDS_ACCEL | PX4_FIELDS_GYRO;
+    if (!samples->mag_modelled || (samples->imu != NULL && samples->imu_fresh)) {
+        fields |= PX4_FIELDS_MAG;
+    }
+    if (samples->baro != NULL) {
+        if (samples->baro_fresh) {
+            sensor->abs_pressure_hpa = (float)(samples->baro->pressure_pa / PASCALS_PER_HPA);
+            sensor->temperature_c = (float)samples->baro->temperature_c;
+            fields |= PX4_FIELDS_BARO;
+        }
+    } else {
+        fields |= PX4_FIELDS_BARO;
+    }
+    sensor->fields_updated = fields;
 }

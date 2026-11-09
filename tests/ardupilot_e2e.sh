@@ -27,7 +27,8 @@ cleanup() {
     sleep 2
     [ -n "$AP_PID" ] && kill -9 "$AP_PID" 2>/dev/null || true
     [ -n "$SIM_PID" ] && kill -9 "$SIM_PID" 2>/dev/null || true
-    if [ -n "${ARDUPILOT_E2E_KEEP:-}" ]; then echo "logs kept in $WORK"; else rm -rf "$SHM" "$WORK"; fi
+    rm -rf "$SHM"
+    if [ -n "${ARDUPILOT_E2E_KEEP:-}" ]; then echo "logs kept in $WORK"; else rm -rf "$WORK"; fi
 }
 trap cleanup EXIT
 cp "$DEFAULTS" "$WORK/defaults.parm"

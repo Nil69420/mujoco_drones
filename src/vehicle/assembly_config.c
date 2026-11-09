@@ -110,6 +110,7 @@ static const number_field_t NUMBER_FIELDS[] = {
     {"vibration", offsetof(vehicle_assembly_spec_t, vibration)},
     {"drag_area", offsetof(vehicle_assembly_spec_t, drag_area)},
     {"bridge_port", offsetof(vehicle_assembly_spec_t, bridge_port)},
+    {"bridge_speed", offsetof(vehicle_assembly_spec_t, bridge_speed)},
 };
 
 static int handle_vehicle_flag(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, const char *key,

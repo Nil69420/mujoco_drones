@@ -181,6 +181,8 @@ static void test_encode_limits(void) {
     frame.len = 4;
     uint8_t buf[MAV2_MAX_FRAME_BYTES];
     CHECK(mav2_encode(buf, sizeof(buf), &frame) == 0);
+    CHECK(mav2_encode(buf, sizeof(buf), NULL) == 0);
+    CHECK(mav2_encode(NULL, sizeof(buf), &frame) == 0);
     CHECK(mav2_crc_extra(107) == 108 && mav2_crc_extra(9999) < 0);
     px4_actuator_controls_t act;
     frame.msgid = MAV2_MSG_HEARTBEAT;

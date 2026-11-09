@@ -2,7 +2,7 @@
 environment = desert
 environment_seed = 5
 weather = clear_calm
-duration = 300.0
+duration = 3600.0
 
 [vehicle ap0]
 airframe = quad_x

@@ -1,6 +1,6 @@
 # Flight-software bridges
 
-mujoco_drones can replace its built-in controller with a real flight stack running in software-in-the-loop (SITL). Each bridge is lockstep: the flight stack waits for the simulator's reply to every output frame, so simulated time never depends on wall-clock time.
+mujoco_drones can replace its built-in controller with a real flight stack running in software-in-the-loop (SITL). Each bridge is lockstep: the flight stack waits for the simulator's reply to every output frame, so simulated time never depends on wall-clock time. A scenario selects the bridge per vehicle with `bridge = ardupilot` or `bridge = px4`; `bridge_port` overrides the port and `bridge_speed` sets the simulation speed against wall-clock time (default 1.0, real time).
 
 ## ArduPilot (JSON backend)
 
@@ -48,4 +48,35 @@ Mapping from PWM to thrust follows ArduPilot's thrust expo (`MOT_THST_EXPO`, def
 
 - Multirotor plus-frame quad only; other airframes need their own mapping tables.
 - One bridged vehicle per scenario.
+- PX4 receives ground-truth GPS; the GNSS model is not routed yet.
 - Sensor models are not yet routed through ArduPilot (see the roadmap: GPS_INPUT).
+
+## PX4 (simulator MAVLink API)
+
+Status: verified against PX4 built from main (2026-11-09) without Gazebo. A multicopter with default parameters arms, takes off to 5 m (4.99 m measured), flies to a waypoint 11 m away with 0.04 m error and lands and disarms. Fixed-wing and VTOL airframes are not mapped yet.
+
+### How it works
+
+PX4's `simulator_mavlink` module connects to the simulator as a TCP client on port 4560, so the simulator listens. Messages are MAVLink v2. The simulator sends `HIL_SENSOR` every 4 ms of simulation time (250 Hz) and `HIL_GPS` at 10 Hz; PX4 answers each `HIL_SENSOR` with `HIL_ACTUATOR_CONTROLS` (motor commands as fractions of full thrust) once its estimator and controllers have run. Until the first reply the simulator free-runs so PX4's clock starts, then it waits for every reply. If PX4 closes the connection the run stops with a message.
+
+The MAVLink codec is hand-written (`src/bridge/mav2.c`, `px4_msgs.c`) and checked byte for byte against frames produced by the MAVLink C library generated for PX4 (`tests/test_mav2.c`), and fuzzed (`fuzz/fuzz_mav2.c`).
+
+### Run it
+
+Build PX4 without the Gazebo modules (they need a matching protobuf), for example a board file that sets `CONFIG_MODULES_SIMULATION_GZ_MSGS=n`, `..._GZ_BRIDGE=n`, `..._GZ_PLUGINS=n`, then:
+
+```sh
+./build/hummingbird --headless --scenario scenarios/px4_quad.scn
+cd rootfs && cp /path/to/mujoco_drones/tests/px4/10099_mujoco_plus_quad etc/init.d-posix/airframes/
+PX4_SIM_MODEL=mujoco_plus_quad px4 -d etc
+```
+
+`tests/px4/10099_mujoco_plus_quad` describes the simulator's plus-layout quad to PX4's control allocator (rotor positions and torque signs); it is a copy-in airframe, nothing in PX4 needs patching. Connect a ground station or script to UDP 14550.
+
+### What PX4 receives
+
+Accelerometer, gyro, magnetometer and barometer values come from the modelled sensors when a profile is selected in the scenario (`imu`, `mag`, `baro`), converted to PX4's frame and units, and each sensor is flagged as updated only when it has a new sample. Without model profiles the values are derived from ground truth. The model noise matters: PX4 declares a sensor stuck (`STALE`) when it reports exactly the same value 100 times in a row, so a noise-free magnetometer or barometer at rest is rejected and arming fails with "no valid barometer data". GPS currently comes from ground truth (position, velocity), at 10 Hz.
+
+### Tests
+
+`px4_sensors` (ISA pressure, geomagnetic rotation, geodetic conversion, model overlay), `px4_link` (TCP, partial frames, peer closing, no SIGPIPE), `px4_runner` (startup free-run, lockstep with a fake PX4, no re-send while waiting, connection loss), `mav2`. End to end: `tests/px4_e2e.sh` (skips unless `PX4_BIN` points at a PX4 SITL binary and `PX4_PYTHON` has `pymavlink`).

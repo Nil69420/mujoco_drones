@@ -70,8 +70,8 @@ void ap_truth_to_state(const ap_truth_t *truth, ap_state_t *out) {
     flu_to_frd(truth->accel_flu_mps2, out->accel_body_mps2);
 
     const double *rot = truth->rotation_body_to_world;
-    double ned_from_enu[9] = {0, 1, 0, 1, 0, 0, 0, 0, -1};
-    double frd_to_flu[3] = {1.0, -1.0, -1.0};
+    const double ned_from_enu[9] = {0, 1, 0, 1, 0, 0, 0, 0, -1};
+    const double frd_to_flu[3] = {1.0, -1.0, -1.0};
     double mid[9];
     double result[9];
     for (int row = 0; row < 3; row++) {
