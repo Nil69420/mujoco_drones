@@ -193,7 +193,7 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-latest
-    name: Fuzz (WebSocket parser)
+    name: Fuzz (WebSocket parser, ArduPilot packet decoder)
     steps:
       - uses: actions/checkout@v4
 
@@ -210,6 +210,10 @@ jobs:
             ../src/foxglove/sha1.c ../src/foxglove/base64.c -o fuzz_ws_proto
           mkdir -p corpus
           ./fuzz_ws_proto -max_total_time=60 -timeout=5 corpus
+          clang -std=c11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_ap_servo.c ../src/bridge/ap_json.c -lm -o fuzz_ap_servo
+          mkdir -p corpus_ap
+          ./fuzz_ap_servo -max_total_time=30 -timeout=5 -max_len=100 corpus_ap
 
   foxglove-adversarial:
     runs-on: ubuntu-latest
