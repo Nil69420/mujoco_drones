@@ -1,6 +1,7 @@
 #include "bridge/ap_scenario.h"
 
 #include "bridge/ap_runner.h"
+#include "bridge/bf_runner.h"
 #include "bridge/px4_runner.h"
 
 #include <math.h>
@@ -67,11 +68,32 @@ static void px4_destroy(void *runner) {
     px4_runner_destroy(runner);
 }
 
+static void *bf_create(uint16_t port) {
+    ap_map_t map = ap_map_quad_direct();
+    px4_home_t home = px4_home_default();
+    return bf_runner_create(&map, &home, port, (uint16_t)(port + 1U));
+}
+
+static int bf_exchange(void *runner, const vehicle_t *vehicle, const mjModel *model, mjData *data,
+                       tick_fn tick, void *ctx, int timeout_ms) {
+    return bf_runner_exchange(runner, vehicle, model, data, tick, ctx, timeout_ms);
+}
+
+static uint16_t bf_port(const void *runner) {
+    return bf_runner_port(runner);
+}
+
+static void bf_destroy(void *runner) {
+    bf_runner_destroy(runner);
+}
+
 static const bridge_ops_t BRIDGES[] = {
     {"ardupilot", AP_JSON_DEFAULT_PORT, ap_create, ap_exchange, ap_port, ap_destroy,
      AP_RUNNER_EXCHANGED, AP_RUNNER_FAILED},
     {"px4", PX4_BRIDGE_DEFAULT_PORT, px4_create, px4_exchange, px4_port, px4_destroy,
      PX4_RUNNER_EXCHANGED, PX4_RUNNER_FAILED},
+    {"betaflight", BF_BRIDGE_DEFAULT_PORT, bf_create, bf_exchange, bf_port, bf_destroy,
+     BF_RUNNER_EXCHANGED, BF_RUNNER_FAILED},
 };
 
 static volatile sig_atomic_t g_stop = 0;

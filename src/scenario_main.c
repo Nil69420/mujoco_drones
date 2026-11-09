@@ -228,7 +228,7 @@ static int run_scenario(scenario_t *scenario, vehicle_t *vehicles,
 
     int bridged = ap_scenario_find(scenario);
     if (bridged == -2) {
-        fprintf(stderr, "[scenario] ERROR: bridge must be ardupilot or px4 on at most one vehicle\n");
+        fprintf(stderr, "[scenario] ERROR: bridge must be ardupilot, px4 or betaflight on at most one vehicle\n");
         return 1;
     }
     if (bridged >= 0) {
