@@ -162,6 +162,9 @@ set(MDMODEL_SOURCES
     src/bridge/px4_link.c
     src/bridge/bf_packets.c
     src/bridge/bf_link.c
+    src/pilot/pilot_profile.c
+    src/pilot/pilot_core.c
+    src/pilot/pilot_evdev.c
 )
 add_library(mdmodels STATIC ${MDMODEL_SOURCES})
 set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
@@ -262,6 +265,23 @@ target_include_directories(test_bf_packets PRIVATE ${CMAKE_SOURCE_DIR}/tests ${C
 target_compile_options(test_bf_packets PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_bf_packets PRIVATE mdmodels m)
 add_test(NAME bf_packets COMMAND test_bf_packets)
+
+add_executable(test_pilot tests/test_pilot.c)
+target_include_directories(test_pilot PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_pilot PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_pilot PRIVATE mdmodels m)
+add_test(NAME pilot COMMAND test_pilot)
+
+add_executable(test_pilot_evdev tests/test_pilot_evdev.c)
+target_include_directories(test_pilot_evdev PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_pilot_evdev PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_pilot_evdev PRIVATE mdmodels m)
+add_test(NAME pilot_evdev COMMAND test_pilot_evdev)
+
+add_executable(pilot_tool src/tools/pilot_tool.c)
+target_include_directories(pilot_tool PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(pilot_tool PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(pilot_tool PRIVATE mdmodels m)
 
 add_executable(test_cli tests/test_cli.c src/cli.c)
 target_include_directories(test_cli PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
@@ -466,7 +486,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -476,7 +496,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
@@ -499,6 +519,7 @@ if(CLANG_TIDY)
     if(ENABLE_IPC)
         list(APPEND TIDY_SRCS
             "${CMAKE_SOURCE_DIR}/src/tools/send_command.c"
+            "${CMAKE_SOURCE_DIR}/src/tools/pilot_tool.c"
             "${CMAKE_SOURCE_DIR}/src/tools/sensor_tap.c")
     endif()
     if(ENABLE_IPC)

@@ -193,7 +193,7 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-latest
-    name: Fuzz (WebSocket parser, ArduPilot packet decoder, MAVLink parser)
+    name: Fuzz (WebSocket parser, ArduPilot packet decoder, MAVLink parser, controller profile parser)
     steps:
       - uses: actions/checkout@v4
 
@@ -218,6 +218,10 @@ jobs:
             -I../include fuzz_mav2.c ../src/bridge/mav2.c ../src/bridge/px4_msgs.c -lm -o fuzz_mav2
           mkdir -p corpus_mav2
           ./fuzz_mav2 -max_total_time=30 -timeout=5 -max_len=600 corpus_mav2
+          clang -std=gnu11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_pilot_profile.c ../src/pilot/pilot_profile.c ../src/pilot/pilot_core.c -lm -o fuzz_pilot
+          mkdir -p corpus_pilot
+          ./fuzz_pilot -max_total_time=30 -timeout=5 -max_len=400 corpus_pilot
 
   foxglove-adversarial:
     runs-on: ubuntu-latest
