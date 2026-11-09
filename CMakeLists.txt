@@ -155,6 +155,8 @@ set(MDMODEL_SOURCES
     src/bridge/ap_frames.c
     src/bridge/mav2.c
     src/bridge/px4_msgs.c
+    src/bridge/px4_sensors.c
+    src/bridge/px4_link.c
 )
 add_library(mdmodels STATIC ${MDMODEL_SOURCES})
 set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
@@ -237,6 +239,18 @@ target_include_directories(test_mav2 PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_S
 target_compile_options(test_mav2 PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_mav2 PRIVATE mdmodels m)
 add_test(NAME mav2 COMMAND test_mav2)
+
+add_executable(test_px4_sensors tests/test_px4_sensors.c)
+target_include_directories(test_px4_sensors PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_px4_sensors PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_px4_sensors PRIVATE mdmodels m)
+add_test(NAME px4_sensors COMMAND test_px4_sensors)
+
+add_executable(test_px4_link tests/test_px4_link.c)
+target_include_directories(test_px4_link PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_px4_link PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_px4_link PRIVATE mdmodels m)
+add_test(NAME px4_link COMMAND test_px4_link)
 
 add_executable(test_cli tests/test_cli.c src/cli.c)
 target_include_directories(test_cli PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
@@ -426,7 +440,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -436,7 +450,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread

@@ -73,11 +73,31 @@ static void test_short_frame_is_zero_thrust(void) {
     CHECK_NEAR(out.value[2], 0.0, 1e-12);
 }
 
+static void test_fractions(void) {
+    ap_map_t map = ap_map_quad_direct();
+    CHECK(ap_map_validate(&map) == 0);
+    float fractions[16] = {0.0F, 0.5F, 1.0F, 2.0F, 0.0F};
+    actuator_command_t out;
+    ap_map_apply_fractions(&map, fractions, 16, &out);
+    CHECK(out.count == 8);
+    CHECK_NEAR(out.value[0], 0.0, 1e-12);
+    CHECK_NEAR(out.value[1], 3.0, 1e-12);
+    CHECK_NEAR(out.value[2], 6.0, 1e-12);
+    CHECK_NEAR(out.value[3], 6.0, 1e-12);
+    CHECK(out.value[4] == 0.0 && out.value[5] > 0.0 && out.value[6] < 0.0 && out.value[7] > 0.0);
+    fractions[0] = NAN;
+    ap_map_apply_fractions(&map, fractions, 2, &out);
+    CHECK_NEAR(out.value[0], 0.0, 1e-12);
+    CHECK_NEAR(out.value[2], 0.0, 1e-12);
+    CHECK_NEAR(out.value[1], 3.0, 1e-12);
+}
+
 int main(void) {
     test_thrust_curve();
     test_apply_order_and_spin();
     test_validate_rejects();
     test_short_frame_is_zero_thrust();
+    test_fractions();
     if (g_failures != 0) {
         fprintf(stderr, "%d failures\n", g_failures);
         return 1;

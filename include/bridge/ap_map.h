@@ -26,10 +26,17 @@ typedef struct {
 
 ap_map_t ap_map_quad_plus(void);
 
+ap_map_t ap_map_quad_direct(void);
+
 int ap_map_validate(const ap_map_t *map);
 
 double ap_map_thrust(const ap_map_t *map, int pwm);
 
+double ap_map_thrust_from_fraction(const ap_map_t *map, double fraction);
+
 void ap_map_apply(const ap_map_t *map, const ap_servo_frame_t *frame, actuator_command_t *out);
+
+void ap_map_apply_fractions(const ap_map_t *map, const float *fractions, int count,
+                            actuator_command_t *out);
 
 #endif

@@ -26,6 +26,19 @@ ap_map_t ap_map_quad_plus(void) {
     return map;
 }
 
+ap_map_t ap_map_quad_direct(void) {
+    ap_map_t map = ap_map_quad_plus();
+    static const double spin_sign[QUAD_MOTORS] = {-1.0, 1.0, -1.0, 1.0};
+    map.thrust_expo = 0.0;
+    for (int i = 0; i < QUAD_MOTORS; i++) {
+        map.motor[i].servo_channel = i;
+        map.motor[i].thrust_channel = i;
+        map.motor[i].spin_channel = QUAD_MOTORS + i;
+        map.motor[i].spin_sign = spin_sign[i];
+    }
+    return map;
+}
+
 int ap_map_validate(const ap_map_t *map) {
     if (map == NULL || map->motor_count < 1 || map->motor_count > AP_MAP_MAX_MOTORS ||
         map->channel_count < 1 || map->channel_count > VEHICLE_MAX_ACTUATOR_CHANNELS ||
@@ -44,12 +57,15 @@ int ap_map_validate(const ap_map_t *map) {
     return 0;
 }
 
-double ap_map_thrust(const ap_map_t *map, int pwm) {
-    double span = (double)(map->pwm_max - map->pwm_min);
-    double command = ((double)pwm - (double)map->pwm_min) / span;
-    command = fmin(1.0, fmax(0.0, command));
+double ap_map_thrust_from_fraction(const ap_map_t *map, double fraction) {
+    double command = isfinite(fraction) ? fmin(1.0, fmax(0.0, fraction)) : 0.0;
     double frac = (1.0 - map->thrust_expo) * command + map->thrust_expo * command * command;
     return map->max_thrust_n * frac;
+}
+
+double ap_map_thrust(const ap_map_t *map, int pwm) {
+    double span = (double)(map->pwm_max - map->pwm_min);
+    return ap_map_thrust_from_fraction(map, ((double)pwm - (double)map->pwm_min) / span);
 }
 
 void ap_map_apply(const ap_map_t *map, const ap_servo_frame_t *frame, actuator_command_t *out) {
@@ -60,6 +76,23 @@ void ap_map_apply(const ap_map_t *map, const ap_servo_frame_t *frame, actuator_c
         double thrust = 0.0;
         if (motor->servo_channel < frame->channels) {
             thrust = ap_map_thrust(map, frame->pwm[motor->servo_channel]);
+        }
+        out->value[motor->thrust_channel] = thrust;
+        if (motor->spin_channel >= 0) {
+            out->value[motor->spin_channel] = motor->spin_sign * sqrt(thrust / map->motor_constant);
+        }
+    }
+}
+
+void ap_map_apply_fractions(const ap_map_t *map, const float *fractions, int count,
+                            actuator_command_t *out) {
+    memset(out, 0, sizeof(*out));
+    out->count = map->channel_count;
+    for (int i = 0; i < map->motor_count; i++) {
+        const ap_motor_t *motor = &map->motor[i];
+        double thrust = 0.0;
+        if (motor->servo_channel < count) {
+            thrust = ap_map_thrust_from_fraction(map, (double)fractions[motor->servo_channel]);
         }
         out->value[motor->thrust_channel] = thrust;
         if (motor->spin_channel >= 0) {
