@@ -150,6 +150,7 @@ set(MDMODEL_SOURCES
     src/bridge/ap_json.c
     src/bridge/ap_map.c
     src/bridge/ap_link.c
+    src/bridge/ap_frames.c
 )
 add_library(mdmodels STATIC ${MDMODEL_SOURCES})
 set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
@@ -220,6 +221,12 @@ target_include_directories(test_ap_link PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAK
 target_compile_options(test_ap_link PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_ap_link PRIVATE mdmodels m)
 add_test(NAME ap_link COMMAND test_ap_link)
+
+add_executable(test_ap_frames tests/test_ap_frames.c)
+target_include_directories(test_ap_frames PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_ap_frames PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ap_frames PRIVATE mdmodels m)
+add_test(NAME ap_frames COMMAND test_ap_frames)
 
 add_executable(test_cli tests/test_cli.c src/cli.c)
 target_include_directories(test_cli PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
@@ -402,7 +409,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -412,7 +419,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
