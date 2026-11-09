@@ -119,10 +119,12 @@ static void run_lockstep(void) {
     CHECK(receive_states(fake, &last_time) == 1);
     CHECK_NEAR(last_time, 0.001, 1e-9);
 
-    CHECK(bf_runner_exchange(runner, &vehicle, model, data, tick, &ctx, 20) == BF_RUNNER_WAITING);
+    CHECK(bf_runner_exchange(runner, &vehicle, model, data, tick, &ctx, 400) == BF_RUNNER_WAITING);
     CHECK_NEAR(data->time, 0.002, 1e-9);
     CHECK(receive_states(fake, &last_time) == 1);
     CHECK_NEAR(last_time, 0.002, 1e-9);
+    CHECK(bf_runner_exchange(runner, &vehicle, model, data, tick, &ctx, 400) == BF_RUNNER_WAITING);
+    CHECK(receive_states(fake, &last_time) == 0);
     CHECK(bf_runner_exchange(runner, &vehicle, model, data, tick, &ctx, 20) == BF_RUNNER_WAITING);
     CHECK(receive_states(fake, &last_time) == 1);
     CHECK_NEAR(last_time, 0.002, 1e-9);

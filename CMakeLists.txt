@@ -387,6 +387,8 @@ if(ENABLE_IPC)
     set_tests_properties(ardupilot_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 420)
     add_test(NAME px4_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/px4_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     set_tests_properties(px4_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600)
+    add_test(NAME betaflight_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/betaflight_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(betaflight_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 LABELS experimental)
     target_compile_definitions(send_command PRIVATE ENABLE_IPC)
 
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")

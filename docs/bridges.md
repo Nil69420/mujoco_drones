@@ -80,3 +80,27 @@ Accelerometer, gyro, magnetometer and barometer values come from the modelled se
 ### Tests
 
 `px4_sensors` (ISA pressure, geomagnetic rotation, geodetic conversion, model overlay), `px4_link` (TCP, partial frames, peer closing, no SIGPIPE), `px4_runner` (startup free-run, lockstep with a fake PX4, no re-send while waiting, connection loss), `mav2`. End to end: `tests/px4_e2e.sh` (skips unless `PX4_BIN` points at a PX4 SITL binary and `PX4_PYTHON` has `pymavlink`).
+
+## Betaflight (SITL UDP)
+
+Status: experimental. Stock Betaflight SITL (built with `make TARGET=SITL`, default Gazebo-bridge conventions) receives the simulator's state, runs its real attitude estimator on the modelled gyro and accelerometer, arms from UDP RC, flies, and answers stick inputs in the right directions in single runs. The closed-loop test `tests/betaflight_e2e.sh` is not a reliable gate yet: Betaflight has no altitude hold, so open-loop stick pulses drift widely and the pass rate over three consecutive runs was below 100%. Do not rely on it as a regression gate.
+
+### How it works
+
+Betaflight sends four motor fractions (UDP, 16 bytes) to port 9002 and listens for the state packet (144 bytes) on 9003 and RC (timestamp and 16 channels, 40 bytes) on 9004. The simulator binds 9002 and sends state to `bridge_port + 1`. Betaflight scales its own clock by the speed it measures from consecutive state timestamps, so the simulator must run at real time (`bridge_speed` 1.0) and must never resend a packet with an unchanged timestamp: a zero speed freezes Betaflight's clock permanently. After a gap of more than 500 ms Betaflight resynchronises, so the runner only retries after 700 ms without a reply.
+
+The Gazebo-bridge variant of the packet is reproduced: gyro and accelerometer in the FRD frame, the attitude quaternion conjugated by a rotation of pi about x, position as longitude, latitude and altitude, with latitude and longitude mirrored about the first position (Betaflight undoes that mirroring).
+
+### Configure
+
+`tests/betaflight/config.cli` gives Betaflight a custom plus-layout mixer matching the simulator's rotor order (with yaw signs checked by flying: the opposite signs make Betaflight's runaway protection disarm), arm on AUX1 and angle mode on AUX2. Apply it over the CLI on TCP port 5761 and `save`; the SITL process exits and must be restarted.
+
+### Hover
+
+Betaflight's motor output is linear in throttle ((throttle - 1000) / 1000, idle 5.5%). For the 0.68 kg quad hover is near 1260 to 1285.
+
+### Known limits
+
+- Betaflight's reported GPS and altitude come from the packet (virtual GPS); magnetometer fusion is off by default.
+- Single bridged vehicle, quad plus layout only.
+- No altitude hold in Betaflight: validation by stick direction needs closed-loop altitude control from the pilot or a pilot-input layer (see the roadmap, workstream C7).

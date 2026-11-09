@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { STARTUP_WAIT_MS = 2 };
+enum { STARTUP_WAIT_MS = 2, RESYNC_MS = 700 };
 
 static const double STEP_S = 0.001;
 
@@ -19,6 +19,7 @@ struct bf_runner {
     bool awaiting;
     bool replied_once;
     bool have_origin;
+    int waited_ms;
     double origin_enu[3];
     float motors[BF_MOTOR_COUNT];
 };
@@ -87,8 +88,13 @@ int bf_runner_exchange(bf_runner_t *runner, const vehicle_t *vehicle, const mjMo
     if (status == BF_LINK_READY) {
         memcpy(runner->motors, fresh, sizeof(runner->motors));
         runner->replied_once = true;
+        runner->waited_ms = 0;
     } else if (runner->replied_once) {
-        runner->awaiting = false;
+        runner->waited_ms += wait_ms;
+        if (runner->waited_ms >= RESYNC_MS) {
+            runner->awaiting = false;
+            runner->waited_ms = 0;
+        }
         return BF_RUNNER_WAITING;
     }
     runner->awaiting = false;

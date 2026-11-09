@@ -15,6 +15,7 @@
 enum { BRIDGE_IDLE_TIMEOUT_MS = 120000, MAX_UDP_PORT = 65535, EXCHANGE_TIMEOUT_MS = 200 };
 
 static const double MIN_SLEEP_S = 0.0005;
+static const double LOG_PERIOD_S = 0.25;
 static const double MAX_SPEED = 1000.0;
 
 typedef void (*tick_fn)(void *ctx);
@@ -174,6 +175,17 @@ static void pace(double sim_time_s, double start_s, double speed) {
     }
 }
 
+static void log_state(const vehicle_t *vehicle, const mjModel *model, const mjData *data,
+                      const double origin[3]) {
+    (void)model;
+    int body = vehicle->base_body_id;
+    double yaw_deg = atan2(data->xmat[9 * body + 3], data->xmat[9 * body]) * 57.29577951308232;
+    (void)fprintf(stderr, "[bridge] t=%.3f pos=(%.3f %.3f %.3f) yaw=%.1f\n", data->time,
+                  data->xpos[3 * body] - origin[0], data->xpos[3 * body + 1] - origin[1],
+                  data->xpos[3 * body + 2] - origin[2], yaw_deg);
+    (void)fflush(stderr);
+}
+
 static int bridge_loop(const bridge_ops_t *ops, void *runner, scenario_t *scenario,
                        vehicle_t *vehicles, const mjModel *model, mjData *data, int bridged) {
     tick_ctx_t ctx = {scenario, vehicles, model, data};
@@ -181,6 +193,9 @@ static int bridge_loop(const bridge_ops_t *ops, void *runner, scenario_t *scenar
     speed = speed > 0.0 ? speed : 1.0;
     int idle_ms = 0;
     bool started = false;
+    double next_log_s = 0.0;
+    double origin[3] = {0.0, 0.0, 0.0};
+    bool have_origin = false;
     double start_wall_s = 0.0;
     double start_sim_s = 0.0;
     g_stop = 0;
@@ -199,6 +214,16 @@ static int bridge_loop(const bridge_ops_t *ops, void *runner, scenario_t *scenar
                 start_sim_s = data->time;
             }
             pace(data->time - start_sim_s, start_wall_s, speed);
+            if (!have_origin && vehicles[bridged].base_body_id >= 0) {
+                for (int i = 0; i < 3; i++) {
+                    origin[i] = data->xpos[3 * vehicles[bridged].base_body_id + i];
+                }
+                have_origin = true;
+            }
+            if (have_origin && data->time >= next_log_s) {
+                log_state(&vehicles[bridged], model, data, origin);
+                next_log_s = data->time + LOG_PERIOD_S;
+            }
         }
         idle_ms = status == ops->exchanged ? 0 : idle_ms + EXCHANGE_TIMEOUT_MS;
         if (idle_ms >= BRIDGE_IDLE_TIMEOUT_MS) {
