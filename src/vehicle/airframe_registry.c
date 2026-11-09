@@ -23,6 +23,38 @@ static const airframe_spec_t QUAD_X = {
     .base_body      = "base_link",
 };
 
+static const airframe_spec_t HEXA = {
+    .name           = "hexa",
+    .airframe_class = "rotor_multicopter",
+    .mjcf_path      = "hexa.xml",
+    .channel_names  = {
+        "thrust_0", "thrust_1", "thrust_2", "thrust_3", "thrust_4", "thrust_5",
+        "spin_0", "spin_1", "spin_2", "spin_3", "spin_4", "spin_5",
+    },
+    .channel_count  = 12,
+    .imu_site       = "imu_site",
+    .lidar_site     = "lidar_site",
+    .infrared_site  = "infrared_site",
+    .camera_name    = "drone_camera",
+    .base_body      = "base_link",
+};
+
+static const airframe_spec_t OCTO = {
+    .name           = "octo",
+    .airframe_class = "rotor_multicopter",
+    .mjcf_path      = "octo.xml",
+    .channel_names  = {
+        "thrust_0", "thrust_1", "thrust_2", "thrust_3", "thrust_4", "thrust_5", "thrust_6", "thrust_7",
+        "spin_0", "spin_1", "spin_2", "spin_3", "spin_4", "spin_5", "spin_6", "spin_7",
+    },
+    .channel_count  = 16,
+    .imu_site       = "imu_site",
+    .lidar_site     = "lidar_site",
+    .infrared_site  = "infrared_site",
+    .camera_name    = "drone_camera",
+    .base_body      = "base_link",
+};
+
 static const airframe_spec_t FIXEDWING_BASIC = {
     .name           = "fixedwing_basic",
     .airframe_class = "fixed_wing_conventional",
@@ -41,6 +73,8 @@ static const airframe_spec_t FIXEDWING_BASIC = {
 static const airframe_spec_t *const *airframe_table(int *count) {
     static const airframe_spec_t *const table[] = {
         &QUAD_X,
+        &HEXA,
+        &OCTO,
         &FIXEDWING_BASIC,
         &aslfixedwing_SPEC,
         &quadx_SPEC,
