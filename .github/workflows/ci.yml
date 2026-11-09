@@ -54,9 +54,10 @@ jobs:
         if: steps.cache-mujoco.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.mujoco
-          curl -fsSL \
-            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
-            | tar xz -C ~/.mujoco
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+            -o /tmp/mujoco.tar.gz \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz"
+          tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
@@ -148,9 +149,10 @@ jobs:
         if: steps.cache-mujoco.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.mujoco
-          curl -fsSL \
-            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
-            | tar xz -C ~/.mujoco
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+            -o /tmp/mujoco.tar.gz \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz"
+          tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
@@ -233,9 +235,10 @@ jobs:
         if: steps.cache-mujoco.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.mujoco
-          curl -fsSL \
-            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
-            | tar xz -C ~/.mujoco
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+            -o /tmp/mujoco.tar.gz \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz"
+          tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
