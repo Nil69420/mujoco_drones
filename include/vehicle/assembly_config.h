@@ -17,6 +17,8 @@ typedef struct {
     char baro[ASSEMBLY_MAX_NAME_LEN];
     char mag[ASSEMBLY_MAX_NAME_LEN];
     char rangefinder[ASSEMBLY_MAX_NAME_LEN];
+    char bridge[ASSEMBLY_MAX_NAME_LEN];
+    double bridge_port;
     double vibration;
     double target_pos[3];
     int has_target;

@@ -1,5 +1,6 @@
 #include "scenario.h"
 #include "vehicle/vehicle.h"
+#include "bridge/ap_scenario.h"
 #include "vehicle/assembly_config.h"
 #include "vehicle/airframe.h"
 #include "vehicle/controller_ops.h"
@@ -224,6 +225,15 @@ static int run_scenario(scenario_t *scenario, vehicle_t *vehicles,
                         const mjModel *model, mjData *data, double dt) {
     int print_every = (int)(0.2 / dt);
     int step = 0;
+
+    int bridged = ap_scenario_find(scenario);
+    if (bridged == -2) {
+        fprintf(stderr, "[scenario] ERROR: bridge must be 'ardupilot' on at most one vehicle\n");
+        return 1;
+    }
+    if (bridged >= 0) {
+        return ap_scenario_run(scenario, vehicles, model, data, bridged);
+    }
 
     while (data->time < scenario->duration_s) {
         for (int i = 0; i < scenario->vehicle_count; i++) {

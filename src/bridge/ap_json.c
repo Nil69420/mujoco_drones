@@ -107,13 +107,14 @@ static void put_scalar(writer_t *w, const char *key, double v) {
     put_number(w, v);
 }
 
+static const char *const RANGEFINDER_KEYS[AP_JSON_MAX_RANGEFINDERS] = {
+    "rng_1", "rng_2", "rng_3", "rng_4", "rng_5", "rng_6"};
+
 static void put_optional(writer_t *w, const ap_state_t *s) {
     for (int i = 0; i < AP_JSON_MAX_RANGEFINDERS; i++) {
         if (s->has_rng[i]) {
-            char key[8];
-            (void)snprintf(key, sizeof(key), "rng_%d", i + 1);
             put_text(w, ",");
-            put_scalar(w, key, s->rng_m[i]);
+            put_scalar(w, RANGEFINDER_KEYS[i], s->rng_m[i]);
         }
     }
     if (s->has_wind) {

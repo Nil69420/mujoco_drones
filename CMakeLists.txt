@@ -98,6 +98,8 @@ if(ENABLE_IPC)
         src/vehicle/vehicle.c
         src/vehicle/assembly_config.c
         src/scenario_main.c
+        src/bridge/ap_runner.c
+        src/bridge/ap_scenario.c
     )
     list(APPEND SOURCES ${VEHICLE_SOURCES})
 endif()
@@ -331,8 +333,15 @@ if(ENABLE_IPC)
     target_link_directories(sensor_tap PRIVATE ${RENOIR_LIB_DIR})
     target_link_libraries(sensor_tap PRIVATE renoir m)
     add_test(NAME importer_golden COMMAND ${CMAKE_SOURCE_DIR}/tests/importer_golden.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    add_executable(test_ap_runner tests/test_ap_runner.c src/bridge/ap_runner.c)
+    target_include_directories(test_ap_runner PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include ${RENOIR_INCLUDE_DIR})
+    target_compile_options(test_ap_runner PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_link_libraries(test_ap_runner PRIVATE mdmodels m)
+    add_test(NAME ap_runner COMMAND test_ap_runner)
     add_test(NAME wind_live COMMAND ${CMAKE_SOURCE_DIR}/tests/wind_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     add_test(NAME sensor_profiles_live COMMAND ${CMAKE_SOURCE_DIR}/tests/sensor_profiles_live.sh ${CMAKE_BINARY_DIR})
+    add_test(NAME ardupilot_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/ardupilot_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(ardupilot_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 420)
     target_compile_definitions(send_command PRIVATE ENABLE_IPC)
 
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -409,7 +418,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -419,7 +428,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread

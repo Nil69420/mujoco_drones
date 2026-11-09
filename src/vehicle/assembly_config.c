@@ -101,6 +101,7 @@ static const string_field_t STRING_FIELDS[] = {
     {"baro", offsetof(vehicle_assembly_spec_t, baro)},
     {"mag", offsetof(vehicle_assembly_spec_t, mag)},
     {"rangefinder", offsetof(vehicle_assembly_spec_t, rangefinder)},
+    {"bridge", offsetof(vehicle_assembly_spec_t, bridge)},
 };
 
 static const number_field_t NUMBER_FIELDS[] = {
@@ -108,6 +109,7 @@ static const number_field_t NUMBER_FIELDS[] = {
     {"speed", offsetof(vehicle_assembly_spec_t, spawn_speed)},
     {"vibration", offsetof(vehicle_assembly_spec_t, vibration)},
     {"drag_area", offsetof(vehicle_assembly_spec_t, drag_area)},
+    {"bridge_port", offsetof(vehicle_assembly_spec_t, bridge_port)},
 };
 
 static int handle_vehicle_flag(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, const char *key,
