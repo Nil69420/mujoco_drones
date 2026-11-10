@@ -1,4 +1,5 @@
 #include "bridge/mav2.h"
+#include "bridge/mav_dialect.h"
 #include "bridge/px4_msgs.h"
 #include "test_support.h"
 
@@ -190,12 +191,112 @@ static void test_encode_limits(void) {
     CHECK(px4_decode_actuator_controls(NULL, &act) < 0);
 }
 
+static void test_dialect_table_matches_the_official_generator(void) {
+    CHECK(MAV_DIALECT_COUNT == 289U);
+    for (unsigned i = 1; i < MAV_DIALECT_COUNT; i++) {
+        CHECK(MAV_DIALECT[i - 1].msgid < MAV_DIALECT[i].msgid);
+    }
+    static const struct {
+        uint32_t id;
+        uint8_t extra, base, max, ts, tc;
+    } OFFICIAL[] = {
+        {0, 50, 9, 9, 255, 255},     {69, 243, 11, 18, 10, 255},  {76, 152, 33, 33, 30, 31},
+        {323, 78, 147, 147, 0, 1},   {400, 110, 254, 254, 4, 5},  {11002, 234, 179, 180, 4, 5},
+        {12915, 94, 249, 249, 0, 1}, {131, 223, 255, 255, 255, 255},
+    };
+    for (size_t i = 0; i < sizeof(OFFICIAL) / sizeof(OFFICIAL[0]); i++) {
+        const mav_message_info_t *info = mav_dialect_find(OFFICIAL[i].id);
+        CHECK(info != NULL);
+        if (info == NULL) {
+            continue;
+        }
+        CHECK(info->crc_extra == OFFICIAL[i].extra && info->base_len == OFFICIAL[i].base);
+        CHECK(info->max_len == OFFICIAL[i].max);
+        CHECK(info->target_system == OFFICIAL[i].ts && info->target_component == OFFICIAL[i].tc);
+    }
+    CHECK(mav_dialect_find(9999) == NULL && mav_dialect_find(0xFFFFFFU) == NULL);
+}
+
+static void test_every_dialect_message_round_trips(void) {
+    mav2_parser_t parser;
+    mav2_parser_reset(&parser);
+    for (unsigned i = 0; i < MAV_DIALECT_COUNT; i++) {
+        const mav_message_info_t *info = &MAV_DIALECT[i];
+        const uint8_t lengths[2] = {info->base_len, info->max_len};
+        for (int k = 0; k < 2; k++) {
+            mav2_frame_t in;
+            memset(&in, 0, sizeof(in));
+            in.seq = (uint8_t)i;
+            in.sysid = 7;
+            in.compid = 190;
+            in.msgid = info->msgid;
+            in.len = lengths[k];
+            for (unsigned byte_index = 0; byte_index < in.len; byte_index++) {
+                in.payload[byte_index] = (uint8_t)(((byte_index * 31U + info->msgid) & 0x7FU) | 1U);
+            }
+            uint8_t wire[MAV2_MAX_FRAME_BYTES];
+            size_t n = mav2_encode(wire, sizeof(wire), &in);
+            CHECK(n > 0);
+            mav2_frame_t out;
+            CHECK(feed_all(&parser, wire, n, &out) == 1);
+            CHECK(out.msgid == in.msgid && out.len == in.len && out.sysid == 7 && out.compid == 190);
+            CHECK(memcmp(out.payload, in.payload, in.len) == 0);
+        }
+    }
+}
+
+static void test_payload_longer_than_the_message_allows_is_refused(void) {
+    mav2_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.msgid = MAV2_MSG_HEARTBEAT;
+    frame.len = 10;
+    memset(frame.payload, 1, sizeof(frame.payload));
+    uint8_t wire[MAV2_MAX_FRAME_BYTES];
+    CHECK(mav2_encode(wire, sizeof(wire), &frame) == 0);
+
+    uint8_t raw[MAV2_HEADER_BYTES + 10 + 2] = {MAV2_STX, 10, 0, 0, 1, 1, 1, 0, 0, 0};
+    memset(raw + MAV2_HEADER_BYTES, 1, 10);
+    uint16_t crc = test_crc(raw + 1, (size_t)(MAV2_HEADER_BYTES - 1) + 10U, (uint8_t)mav2_crc_extra(0));
+    raw[MAV2_HEADER_BYTES + 10] = (uint8_t)(crc & 0xFFU);
+    raw[MAV2_HEADER_BYTES + 11] = (uint8_t)(crc >> 8);
+    mav2_parser_t parser;
+    mav2_parser_reset(&parser);
+    mav2_frame_t out;
+    CHECK(feed_all(&parser, raw, sizeof(raw), &out) == 0);
+    raw[1] = 9;
+    crc = test_crc(raw + 1, (size_t)(MAV2_HEADER_BYTES - 1) + 9U, (uint8_t)mav2_crc_extra(0));
+    raw[MAV2_HEADER_BYTES + 9] = (uint8_t)(crc & 0xFFU);
+    raw[MAV2_HEADER_BYTES + 10] = (uint8_t)(crc >> 8);
+    CHECK(feed_all(&parser, raw, (size_t)MAV2_HEADER_BYTES + 9U + 2U, &out) == 1);
+}
+
+static void test_truncated_payload_reads_back_zero_extended(void) {
+    mav2_frame_t frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.msgid = 76;
+    frame.len = 33;
+    frame.payload[0] = 0x11;
+    uint8_t wire[MAV2_MAX_FRAME_BYTES];
+    size_t n = mav2_encode(wire, sizeof(wire), &frame);
+    CHECK(n == (size_t)MAV2_HEADER_BYTES + 1U + 2U);
+    mav2_parser_t parser;
+    mav2_parser_reset(&parser);
+    mav2_frame_t out;
+    memset(&out, 0xAA, sizeof(out));
+    CHECK(feed_all(&parser, wire, n, &out) == 1);
+    CHECK(out.len == 1 && out.payload[0] == 0x11 && out.payload[1] == 0 && out.payload[32] == 0);
+}
+
 int main(void) {
     test_encoders_match_reference();
     test_parse_reference_actuators();
     test_parser_resync_and_rejects();
     test_signed_frame_is_consumed();
     test_encode_limits();
+    test_dialect_table_matches_the_official_generator();
+    test_every_dialect_message_round_trips();
+    test_payload_longer_than_the_message_allows_is_refused();
+    test_truncated_payload_reads_back_zero_extended();
     if (g_failures != 0) {
         fprintf(stderr, "%d failures\n", g_failures);
         return 1;

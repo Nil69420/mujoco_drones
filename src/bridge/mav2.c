@@ -1,28 +1,31 @@
 #include "bridge/mav2.h"
 
+#include "bridge/mav_dialect.h"
+
 #include <string.h>
 
 enum { CRC_SEED = 0xFFFF, INCOMPAT_SIGNED = 1, OFFSET_LEN = 1, OFFSET_INCOMPAT = 2, OFFSET_SEQ = 4 };
 
-typedef struct {
-    uint32_t msgid;
-    uint8_t crc_extra;
-} crc_entry_t;
-
-static const crc_entry_t CRC_TABLE[] = {
-    {MAV2_MSG_HEARTBEAT, 50},
-    {MAV2_MSG_HIL_ACTUATOR_CONTROLS, 47},
-    {MAV2_MSG_HIL_SENSOR, 108},
-    {MAV2_MSG_HIL_GPS, 124},
-};
-
-int mav2_crc_extra(uint32_t msgid) {
-    for (size_t i = 0; i < sizeof(CRC_TABLE) / sizeof(CRC_TABLE[0]); i++) {
-        if (CRC_TABLE[i].msgid == msgid) {
-            return CRC_TABLE[i].crc_extra;
+const mav_message_info_t *mav_dialect_find(uint32_t msgid) {
+    unsigned low = 0;
+    unsigned high = MAV_DIALECT_COUNT;
+    while (low < high) {
+        unsigned mid = low + (high - low) / 2U;
+        if (MAV_DIALECT[mid].msgid == msgid) {
+            return &MAV_DIALECT[mid];
+        }
+        if (MAV_DIALECT[mid].msgid < msgid) {
+            low = mid + 1U;
+        } else {
+            high = mid;
         }
     }
-    return -1;
+    return NULL;
+}
+
+int mav2_crc_extra(uint32_t msgid) {
+    const mav_message_info_t *info = mav_dialect_find(msgid);
+    return info != NULL ? (int)info->crc_extra : -1;
 }
 
 static uint16_t crc_step(uint16_t crc, uint8_t byte) {
@@ -43,10 +46,11 @@ size_t mav2_encode(uint8_t *out, size_t cap, const mav2_frame_t *frame) {
     if (out == NULL || frame == NULL) {
         return 0;
     }
-    int extra = mav2_crc_extra(frame->msgid);
-    if (extra < 0 || frame->msgid > 0xFFFFFFU) {
+    const mav_message_info_t *info = mav_dialect_find(frame->msgid);
+    if (info == NULL || frame->msgid > 0xFFFFFFU || frame->len > info->max_len) {
         return 0;
     }
+    int extra = info->crc_extra;
     size_t len = frame->len;
     while (len > 1 && frame->payload[len - 1] == 0) {
         len--;
@@ -81,10 +85,11 @@ static int finish_frame(const mav2_parser_t *parser, mav2_frame_t *out) {
     const uint8_t *buf = parser->buf;
     size_t len = buf[OFFSET_LEN];
     uint32_t msgid = (uint32_t)buf[7] | ((uint32_t)buf[8] << 8) | ((uint32_t)buf[9] << 16);
-    int extra = mav2_crc_extra(msgid);
-    if (extra < 0) {
+    const mav_message_info_t *info = mav_dialect_find(msgid);
+    if (info == NULL || len > info->max_len) {
         return 0;
     }
+    int extra = info->crc_extra;
     uint16_t crc = crc_buffer(buf + 1, (size_t)(MAV2_HEADER_BYTES - 1) + len, (uint8_t)extra);
     uint16_t wire = (uint16_t)((uint16_t)buf[MAV2_HEADER_BYTES + len] |
                                (uint16_t)((uint16_t)buf[MAV2_HEADER_BYTES + len + 1] << 8));

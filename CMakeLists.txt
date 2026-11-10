@@ -157,6 +157,7 @@ set(MDMODEL_SOURCES
     src/bridge/ap_link.c
     src/bridge/ap_frames.c
     src/bridge/mav2.c
+    src/bridge/mav_dialect.c
     src/bridge/px4_msgs.c
     src/bridge/px4_sensors.c
     src/bridge/px4_link.c
