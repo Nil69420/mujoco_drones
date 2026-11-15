@@ -12,7 +12,7 @@ runs:
   steps:
     - name: Cache the PX4 SITL build
       id: cache-px4
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ~/px4-sitl
         key: px4-sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v1
@@ -38,6 +38,12 @@ runs:
         mkdir -p ~/px4-sitl/bin
         cp build/px4_sitl_nogz/bin/px4 ~/px4-sitl/bin/
         cp -r build/px4_sitl_nogz/etc ~/px4-sitl/etc
+    - name: Save the build to the cache
+      if: steps.cache-px4.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ~/px4-sitl
+        key: px4-sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v1
     - name: Python environment for the flight scripts
       shell: bash
       run: |
