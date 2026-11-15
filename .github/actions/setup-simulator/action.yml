@@ -7,6 +7,9 @@ inputs:
   mujoco-version:
     description: MuJoCo release to install
     default: "3.5.0"
+  mujoco-sha256:
+    description: SHA-256 of the MuJoCo release tarball for the chosen version
+    default: "df110ae7b9b0d2e991e0594da4136e9077a625e237f84e7c338410d5199193c7"
   extra-packages:
     description: Additional apt packages
     default: ""
@@ -32,6 +35,7 @@ runs:
         curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
           -o /tmp/mujoco.tar.gz \
           "https://github.com/google-deepmind/mujoco/releases/download/${{ inputs.mujoco-version }}/mujoco-${{ inputs.mujoco-version }}-linux-x86_64.tar.gz"
+        echo "${{ inputs.mujoco-sha256 }}  /tmp/mujoco.tar.gz" | sha256sum -c -
         tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
         mv ~/.mujoco/mujoco-${{ inputs.mujoco-version }} ~/.mujoco/mujoco
     - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
