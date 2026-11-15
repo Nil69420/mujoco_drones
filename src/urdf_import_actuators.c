@@ -187,17 +187,8 @@ void imp_convert_motors_to_sites(mjModel *model, mjSpec *spec) {
         site->size[0] = 0.005;
         site->size[1] = 0.005;
         site->size[2] = 0.005;
-        double axis_body[3];
-        const double axis_world[3] = {model->jnt_axis[jid * 3 + 0], model->jnt_axis[jid * 3 + 1],
-                                      model->jnt_axis[jid * 3 + 2]};
-        double body_quat[4] = {model->body_quat[bid * 4 + 0], model->body_quat[bid * 4 + 1],
-                               model->body_quat[bid * 4 + 2], model->body_quat[bid * 4 + 3]};
-        double rbody[9];
-        mju_quat2Mat(rbody, body_quat);
-        for (int row = 0; row < 3; row++) {
-            axis_body[row] = rbody[row + 0] * axis_world[0] + rbody[row + 3] * axis_world[1] +
-                             rbody[row + 6] * axis_world[2];
-        }
+        const double axis_body[3] = {model->jnt_axis[jid * 3 + 0], model->jnt_axis[jid * 3 + 1],
+                                     model->jnt_axis[jid * 3 + 2]};
         mju_quatZ2Vec(site->quat, axis_body);
         act->trntype = mjTRN_SITE;
         mjs_setString(act->target, site_name);

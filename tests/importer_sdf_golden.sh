@@ -34,6 +34,31 @@ grep -q '<inertial><origin xyz="0.05 0 0" rpy="0 0 0"/><mass value="0.1"/>' "$ur
 rm -rf "$work"
 
 work=$(mktemp -d)
+mkdir -p "$work/model/airframes" "$work/src/vehicle/airframes"
+(cd "$work" && "$BIN_DIR/urdf_import" "$SRC_DIR/tests/golden/importer_sdf/rotated_rotor_sdf/in" rotated_rotor_sdf --class fixed_wing_conventional > log.txt 2>&1) || { cat "$work/log.txt"; fail "the rotated rotor did not import"; }
+python3 -I - "$work/model/airframes/rotated_rotor_sdf/rotated_rotor_sdf.xml" <<'PY' || fail "the thrust of a rotated rotor does not point along the vehicle's forward axis"
+import re, sys
+
+def multiply(a, b):
+    w1, x1, y1, z1 = a
+    w2, x2, y2, z2 = b
+    return (w1*w2 - x1*x2 - y1*y2 - z1*z2, w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2, w1*z2 + x1*y2 - y1*x2 + z1*w2)
+
+text = open(sys.argv[1]).read()
+body = re.search(r'<body name="rotor_puller"[^>]*quat="([^"]+)"', text)
+site = re.search(r'rotor_puller_joint_thrust_site"[^>]*quat="([^"]+)"', text)
+body_quat = tuple(map(float, body.group(1).split())) if body else (1.0, 0.0, 0.0, 0.0)
+site_quat = tuple(map(float, site.group(1).split())) if site else (1.0, 0.0, 0.0, 0.0)
+q = multiply(body_quat, site_quat)
+conjugate = (q[0], -q[1], -q[2], -q[3])
+direction = multiply(multiply(q, (0.0, 0.0, 0.0, 1.0)), conjugate)[1:]
+print("world thrust direction %.4f %.4f %.4f" % direction)
+sys.exit(0 if abs(direction[0] - 1.0) < 1e-3 and abs(direction[1]) < 1e-3 and abs(direction[2]) < 1e-3 else 1)
+PY
+rm -rf "$work"
+
+work=$(mktemp -d)
 mkdir -p "$work/in" "$work/model/airframes" "$work/src/vehicle/airframes"
 cp "$SRC_DIR/tests/golden/importer_sdf/mini_quad_sdf/in/mini_quad_sdf.sdf" "$work/in/"
 sed "s#<pose>-0.1 0.1 0.03 0 0 0</pose>#<pose relative_to=\"base_link\">-0.1 0.1 0.03 0 0 0</pose>#" "$work/in/mini_quad_sdf.sdf" > "$work/in/rel.tmp"
