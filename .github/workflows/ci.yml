@@ -19,7 +19,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -136,7 +136,7 @@ jobs:
           ./build/hummingbird --headless --duration 5
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     name: Static Analysis
     steps:
@@ -205,7 +205,7 @@ jobs:
         run: cmake --build build --target lint
 
   fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     name: Fuzz (WebSocket parser, ArduPilot packet decoder, MAVLink parser, controller profile parser)
     steps:
@@ -238,7 +238,7 @@ jobs:
           ./fuzz_pilot -max_total_time=30 -timeout=5 -max_len=400 corpus_pilot
 
   foxglove-adversarial:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     name: Foxglove adversarial suite
     env:
