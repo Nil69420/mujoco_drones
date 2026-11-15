@@ -60,6 +60,57 @@ static void test_imu_overlay(void) {
     CHECK(state.timestamp_s == 0.0 && state.position_ned_m[2] == 0.0);
 }
 
+static void rotation_y(double angle, double rot[9]) {
+    const double c = cos(angle);
+    const double s = sin(angle);
+    const double values[9] = {c, 0, s, 0, 1, 0, -s, 0, c};
+    memcpy(rot, values, sizeof(values));
+}
+
+static void rotation_x(double angle, double rot[9]) {
+    const double c = cos(angle);
+    const double s = sin(angle);
+    const double values[9] = {1, 0, 0, 0, c, -s, 0, s, c};
+    memcpy(rot, values, sizeof(values));
+}
+
+static void rotation_z(double angle, double rot[9]) {
+    const double c = cos(angle);
+    const double s = sin(angle);
+    const double values[9] = {c, -s, 0, s, c, 0, 0, 0, 1};
+    memcpy(rot, values, sizeof(values));
+}
+
+static void test_attitude_degrees(void) {
+    double rot[9];
+    double att[3];
+    const double identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    ap_attitude_degrees(identity, att);
+    CHECK_NEAR(att[0], 0.0, 1e-9);
+    CHECK_NEAR(att[1], 0.0, 1e-9);
+    CHECK_NEAR(att[2], 0.0, 1e-9);
+    rotation_y(30.0 * M_PI / 180.0, rot);
+    ap_attitude_degrees(rot, att);
+    CHECK_NEAR(att[1], -30.0, 1e-9);
+    CHECK_NEAR(att[2], 0.0, 1e-9);
+    rotation_y(-20.0 * M_PI / 180.0, rot);
+    ap_attitude_degrees(rot, att);
+    CHECK_NEAR(att[1], 20.0, 1e-9);
+    rotation_x(25.0 * M_PI / 180.0, rot);
+    ap_attitude_degrees(rot, att);
+    CHECK_NEAR(att[2], 25.0, 1e-9);
+    CHECK_NEAR(att[1], 0.0, 1e-9);
+    rotation_x(-15.0 * M_PI / 180.0, rot);
+    ap_attitude_degrees(rot, att);
+    CHECK_NEAR(att[2], -15.0, 1e-9);
+    rotation_z(90.0 * M_PI / 180.0, rot);
+    ap_attitude_degrees(rot, att);
+    CHECK_NEAR(att[0], 90.0, 1e-9);
+    const double beyond[9] = {1, 0, 0, 0, 1, 0, 1.0000001, 1.0000001, 1};
+    ap_attitude_degrees(beyond, att);
+    CHECK(isfinite(att[1]) && isfinite(att[2]));
+}
+
 static ap_truth_t base_truth(void) {
     ap_truth_t truth;
     memset(&truth, 0, sizeof(truth));
@@ -119,6 +170,7 @@ static void test_facing_north_is_identity(void) {
 int main(void) {
     test_quaternion_branches();
     test_imu_overlay();
+    test_attitude_degrees();
     test_heading_and_vectors();
     test_facing_north_is_identity();
     if (g_failures != 0) {

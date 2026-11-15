@@ -1,4 +1,5 @@
 #include "bridge/ap_scenario.h"
+#include "bridge/ap_frames.h"
 
 #include "bridge/ap_runner.h"
 #include "bridge/bf_runner.h"
@@ -182,10 +183,11 @@ static void log_state(const vehicle_t *vehicle, const mjModel *model, const mjDa
                       const double origin[3]) {
     (void)model;
     size_t body = (size_t)vehicle->base_body_id;
-    double yaw_deg = atan2(data->xmat[9 * body + 3], data->xmat[9 * body]) * 57.29577951308232;
-    (void)fprintf(stderr, "[bridge] t=%.3f pos=(%.3f %.3f %.3f) yaw=%.1f\n", data->time,
-                  data->xpos[3 * body] - origin[0], data->xpos[3 * body + 1] - origin[1],
-                  data->xpos[3 * body + 2] - origin[2], yaw_deg);
+    double attitude_deg[3];
+    ap_attitude_degrees(&data->xmat[9 * body], attitude_deg);
+    (void)fprintf(stderr, "[bridge] t=%.3f pos=(%.3f %.3f %.3f) yaw=%.1f pitch_up=%.1f roll_right=%.1f\n",
+                  data->time, data->xpos[3 * body] - origin[0], data->xpos[3 * body + 1] - origin[1],
+                  data->xpos[3 * body + 2] - origin[2], attitude_deg[0], attitude_deg[1], attitude_deg[2]);
     (void)fflush(stderr);
 }
 

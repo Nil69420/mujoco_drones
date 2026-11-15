@@ -96,3 +96,12 @@ void ap_truth_to_state(const ap_truth_t *truth, ap_state_t *out) {
     }
     ap_rotation_to_quaternion(result, out->quaternion_wxyz);
 }
+
+void ap_attitude_degrees(const double rotation_body_to_world[9], double yaw_pitch_roll_deg[3]) {
+    const double radians_to_degrees = 57.29577951308232;
+    const double forward_up = fmin(fmax(rotation_body_to_world[6], -1.0), 1.0);
+    const double left_up = fmin(fmax(rotation_body_to_world[7], -1.0), 1.0);
+    yaw_pitch_roll_deg[0] = atan2(rotation_body_to_world[3], rotation_body_to_world[0]) * radians_to_degrees;
+    yaw_pitch_roll_deg[1] = asin(forward_up) * radians_to_degrees;
+    yaw_pitch_roll_deg[2] = asin(left_up) * radians_to_degrees;
+}
