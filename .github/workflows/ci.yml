@@ -15,7 +15,7 @@ concurrency:
 
 env:
   MUJOCO_VERSION: "3.5.0"
-  RENOIR_REF: 3c25986004727ec4d765adea92b5db6d76a6724b
+  RENOIR_REF: 981b95580f83c8f978444fef4d673f3bf2158fec
 
 jobs:
   build:
