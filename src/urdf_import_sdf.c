@@ -158,8 +158,8 @@ static int parse_pose(const char *text, double out[6]) {
 
 static void emit_pose_origin(sb_t *sb, const char *pose_text) {
     double vals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    double parsed[6];
     if (pose_text != NULL) {
+        double parsed[6];
         if (parse_pose(pose_text, parsed) == 0) {
             memcpy(vals, parsed, sizeof(vals));
         } else {

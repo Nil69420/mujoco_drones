@@ -35,7 +35,7 @@ void wind_step(wind_t *wind, double height_m, double airspeed_ms, double dt, dou
     double sigma_uv = sigma_w / pow(scale, 0.4);
     double speed = airspeed_ms < MIN_AIRSPEED_MS ? MIN_AIRSPEED_MS : airspeed_ms;
     const double lengths[3] = {len_uv, len_uv, len_w};
-    double sigmas[3] = {sigma_uv, sigma_uv, sigma_w};
+    const double sigmas[3] = {sigma_uv, sigma_uv, sigma_w};
 
     for (int i = 0; i < 3; i++) {
         double tau = lengths[i] / speed;

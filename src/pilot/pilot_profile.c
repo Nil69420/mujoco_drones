@@ -216,8 +216,8 @@ static int copy_out(char *out, size_t cap, const char *text) {
 static void set_error(char *error, size_t error_len, const char *message, int line) {
     char local[96];
     (void)snprintf(local, sizeof(local), "line %d: %.60s", line, message);
-    size_t len = strlen(local);
     if (error != NULL && error_len > 0) {
+        size_t len = strlen(local);
         size_t keep = len < error_len - 1U ? len : error_len - 1U;
         memcpy(error, local, keep);
         error[keep] = '\0';
