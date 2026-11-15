@@ -19,7 +19,7 @@ cmake --build "$build" -j"$(nproc)" --target hummingbird urdf_import send_comman
 mkdir -p "$stage/bin" "$stage/lib"
 for target in hummingbird urdf_import send_command sensor_tap pilot_tool; do
   install -m 0755 "$build/$target" "$stage/bin/$target"
-  patchelf --set-rpath '$ORIGIN/../lib' "$stage/bin/$target"
+  patchelf --set-rpath "\$ORIGIN/../lib" "$stage/bin/$target"
 done
 cp -a "$RENOIR_DIR"/target/release/librenoir.so* "$stage/lib/"
 cp -a "$mujoco_dir"/lib/libmujoco.so* "$stage/lib/"
@@ -29,7 +29,7 @@ install -m 0644 "$mujoco_dir/LICENSE" "$stage/LICENSES/MuJoCo-Apache-2.0.txt"
 mkdir -p "$out"
 (
   cd "$work"
-  find "$name" -print0 | sort -z | tar --null -T - --no-recursion --sort=name --mtime="@$epoch" \
-    --owner=0 --group=0 --numeric-owner -cf - | gzip -n > "$out/$name.tar.gz"
+  find "$name" -print0 | sort -z | tar --null --no-recursion --sort=name --mtime="@$epoch" \
+    --owner=0 --group=0 --numeric-owner -c -f - -T - | gzip -n > "$out/$name.tar.gz"
 )
 sha256sum "$out/$name.tar.gz"
