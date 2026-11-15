@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="mini_quad_sdf">
+    <link name="base_link">
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>1.0</mass>
+        <inertia><ixx>0.01</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.01</iyy><iyz>0</iyz><izz>0.02</izz></inertia>
+      </inertial>
+      <collision name="base_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.2 0.2 0.05</size></box></geometry>
+      </collision>
+      <visual name="base_visual">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry><box><size>0.2 0.2 0.05</size></box></geometry>
+      </visual>
+    </link>
+    <link name="rotor_0">
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
+      </inertial>
+      <collision name="rotor_0_collision">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_0_visual">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="rotor_0_joint" type="revolute">
+      <pose>0.1 0.1 0.03 0 0 0</pose>
+      <parent>base_link</parent>
+      <child>rotor_0</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+    <link name="rotor_1">
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
+      </inertial>
+      <collision name="rotor_1_collision">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_1_visual">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="rotor_1_joint" type="revolute">
+      <pose>-0.1 -0.1 0.03 0 0 0</pose>
+      <parent>base_link</parent>
+      <child>rotor_1</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+    <link name="rotor_2">
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
+      </inertial>
+      <collision name="rotor_2_collision">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_2_visual">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="rotor_2_joint" type="revolute">
+      <pose>0.1 -0.1 0.03 0 0 0</pose>
+      <parent>base_link</parent>
+      <child>rotor_2</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+    <link name="rotor_3">
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
+      </inertial>
+      <collision name="rotor_3_collision">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </collision>
+      <visual name="rotor_3_visual">
+        <geometry><cylinder><radius>0.05</radius><length>0.005</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="rotor_3_joint" type="revolute">
+      <pose>-0.1 0.1 0.03 0 0 0</pose>
+      <parent>base_link</parent>
+      <child>rotor_3</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+  </model>
+</sdf>
