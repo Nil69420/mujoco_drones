@@ -8,10 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SDF_MAX_CHILDREN 32
-#define SDF_MAX_ATTRS 8
-#define SDF_MAX_DEPTH 64
-
+enum {
+    SDF_MAX_CHILDREN = 32,
+    SDF_MAX_ATTRS = 8,
+    SDF_MAX_DEPTH = 64,
+};
 typedef struct sdf_node {
     char *name;
     struct {

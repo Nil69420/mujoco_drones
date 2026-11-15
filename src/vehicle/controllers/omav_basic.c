@@ -19,8 +19,9 @@
 #define OM_MAX_THRUST 20.0
 #define OM_MAX_TILT 0.20
 #define OM_MAX_ANGLE_RATE 2.0
-#define OM_MAX_ROTORS 8
-
+enum {
+    OM_MAX_ROTORS = 8,
+};
 extern const controller_ops_t omav_basic_ops;
 
 typedef struct {
