@@ -42,7 +42,7 @@ jobs:
             is_asan: false
     name: ${{ matrix.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Install system dependencies
         run: |
@@ -54,7 +54,7 @@ jobs:
 
       - name: Cache MuJoCo
         id: cache-mujoco
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.mujoco/mujoco
           key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
@@ -70,10 +70,12 @@ jobs:
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: stable
 
       - name: Cache Rust (renoir)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ~/.cargo/registry
@@ -83,7 +85,7 @@ jobs:
           restore-keys: renoir-${{ runner.os }}-
 
       - name: Clone renoir
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ github.repository_owner }}/renoir
           ref: ${{ env.RENOIR_REF }}
@@ -140,7 +142,7 @@ jobs:
     timeout-minutes: 30
     name: Static Analysis
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Install system dependencies
         run: |
@@ -152,7 +154,7 @@ jobs:
 
       - name: Cache MuJoCo
         id: cache-mujoco
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.mujoco/mujoco
           key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
@@ -168,10 +170,12 @@ jobs:
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: stable
 
       - name: Cache Rust (renoir)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ~/.cargo/registry
@@ -181,7 +185,7 @@ jobs:
           restore-keys: renoir-${{ runner.os }}-
 
       - name: Clone renoir
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ github.repository_owner }}/renoir
           ref: ${{ env.RENOIR_REF }}
@@ -209,7 +213,7 @@ jobs:
     timeout-minutes: 20
     name: Fuzz (WebSocket parser, ArduPilot packet decoder, MAVLink parser, controller profile parser)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Install clang
         run: |
@@ -244,7 +248,7 @@ jobs:
     env:
       MUJOCO_VERSION: "3.5.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Install system dependencies
         run: |
@@ -253,7 +257,7 @@ jobs:
 
       - name: Cache MuJoCo
         id: cache-mujoco
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.mujoco/mujoco
           key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
@@ -269,10 +273,12 @@ jobs:
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: stable
 
       - name: Clone renoir
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ github.repository_owner }}/renoir
           ref: ${{ env.RENOIR_REF }}

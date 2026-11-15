@@ -1,0 +1,34 @@
+name: Set up Betaflight SITL
+description: Builds (or restores from cache) a pinned Betaflight SITL binary
+inputs:
+  commit:
+    description: Betaflight commit to build
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cache the Betaflight SITL build
+      id: cache-bf
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ~/betaflight-sitl
+        key: betaflight-sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v1
+    - name: Build Betaflight SITL
+      if: steps.cache-bf.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git
+        git init /tmp/betaflight
+        git -C /tmp/betaflight remote add origin https://github.com/betaflight/betaflight.git
+        git -C /tmp/betaflight fetch --depth 1 origin "${{ inputs.commit }}"
+        git -C /tmp/betaflight checkout --detach FETCH_HEAD
+        test "$(git -C /tmp/betaflight rev-parse HEAD)" = "${{ inputs.commit }}"
+        cd /tmp/betaflight
+        git submodule update --init --depth 1 lib/modules/mavlink lib/modules/dronecan/libcanard src/config
+        make TARGET=SITL -j"$(nproc)"
+        mkdir -p ~/betaflight-sitl
+        cp obj/betaflight_*_SITL ~/betaflight-sitl/betaflight_SITL
+    - name: Export the binary location
+      shell: bash
+      run: echo "BETAFLIGHT_SITL=$HOME/betaflight-sitl/betaflight_SITL" >> "$GITHUB_ENV"

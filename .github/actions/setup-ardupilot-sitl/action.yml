@@ -12,7 +12,7 @@ runs:
   steps:
     - name: Cache the ArduCopter SITL build
       id: cache-sitl
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ~/ardupilot-sitl
         key: sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v2
