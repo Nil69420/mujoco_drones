@@ -1,0 +1,7 @@
+{
+   mujoco_zero_size_aligned_alloc
+   Memcheck:FishyValue
+   fun:aligned_alloc
+   ...
+   obj:*/libmujoco.so*
+}

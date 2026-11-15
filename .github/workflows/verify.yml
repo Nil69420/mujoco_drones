@@ -90,7 +90,8 @@ jobs:
       - name: Run every unit test binary under memcheck
         run: |
           find build -maxdepth 1 -name 'test_*' -type f -executable | sort | \
-            xargs -P4 -I{} sh -c 'valgrind --leak-check=full --error-exitcode=1 -q {} > /dev/null || { echo "memcheck failed: {}"; exit 1; }'
+            xargs -P4 -n1 valgrind --leak-check=full --error-exitcode=1 --gen-suppressions=all \
+              --suppressions="$PWD/tests/valgrind.supp" -q
 
   ardupilot-sitl:
     name: ArduCopter 4.6.1 end to end (Release)
