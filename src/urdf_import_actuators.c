@@ -50,7 +50,7 @@ static void mark_matched(const config_actuator_t *entry) {
     }
 }
 
-static joint_plan_t plan_joint(actuator_config_t *cfg, const char *jname, const mjsJoint *jnt) {
+static joint_plan_t plan_joint(const actuator_config_t *cfg, const char *jname, const mjsJoint *jnt) {
     joint_plan_t plan;
     plan.override = cfg ? config_find(cfg, jname) : NULL;
     plan.spin = cfg ? config_find_spin(cfg, jname) : NULL;
@@ -128,7 +128,7 @@ int imp_inject_actuators(mjSpec *spec, actuator_config_t *cfg) {
     for (mjsElement *elem = mjs_firstElement(spec, mjOBJ_JOINT); elem;
          elem = mjs_nextElement(spec, elem)) {
         const char *jname = mjs_getString(mjs_getName(elem));
-        mjsJoint *jnt = mjs_asJoint(elem);
+        const mjsJoint *jnt = mjs_asJoint(elem);
         if (jname && jnt) {
             count += inject_for_joint(spec, cfg, jname, jnt);
         }

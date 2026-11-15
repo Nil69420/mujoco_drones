@@ -87,7 +87,7 @@ static int compose_scene(scenario_t *scenario, mjModel **out_model,
         mount->quat[0] = cos(half_yaw);
         mount->quat[3] = sin(half_yaw);
 
-        mjsElement *att = mjs_attach(mount->element, root->element,
+        const mjsElement *att = mjs_attach(mount->element, root->element,
                                      prefix, "");
         if (!att) {
             snprintf(error, (size_t)error_sz,
@@ -189,16 +189,16 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
     return 0;
 }
 
-static void destroy_vehicles(scenario_t *scenario, vehicle_t *vehicles) {
+static void destroy_vehicles(const scenario_t *scenario, vehicle_t *vehicles) {
     for (int i = 0; i < scenario->vehicle_count; i++) {
         vehicle_cleanup(&vehicles[i]);
     }
 }
 
-static void print_vehicle_state(scenario_t *scenario, vehicle_t *vehicles,
-                                const mjModel *model, mjData *data) {
+static void print_vehicle_state(const scenario_t *scenario, const vehicle_t *vehicles,
+                                const mjModel *model, const mjData *data) {
     for (int i = 0; i < scenario->vehicle_count; i++) {
-        vehicle_t *veh = &vehicles[i];
+        const vehicle_t *veh = &vehicles[i];
         char prefix_buf[VEHICLE_MAX_PREFIX_LEN];
         snprintf(prefix_buf, sizeof(prefix_buf), "%.*s",
                        (int)(sizeof(prefix_buf) - 1), veh->prefix);
@@ -253,7 +253,7 @@ static int run_scenario(scenario_t *scenario, vehicle_t *vehicles,
 
     printf("\n[scenario] final states:\n");
     for (int i = 0; i < scenario->vehicle_count; i++) {
-        vehicle_t *veh = &vehicles[i];
+        const vehicle_t *veh = &vehicles[i];
         char prefix_buf[VEHICLE_MAX_PREFIX_LEN];
         snprintf(prefix_buf, sizeof(prefix_buf), "%.*s",
                        (int)(sizeof(prefix_buf) - 1), veh->prefix);

@@ -174,7 +174,7 @@ static int flush_section(parser_t *prs, int line_no) {
                      prs->err_sz);
 }
 
-static int begin_section(parser_t *prs, char *text, int line_no) {
+static int begin_section(parser_t *prs, const char *text, int line_no) {
     if (flush_section(prs, line_no) != 0) {
         return -1;
     }
@@ -230,7 +230,7 @@ static void parse_channel_order(actuator_config_t *cfg, const char *value) {
     }
 }
 
-static int handle_pair(parser_t *prs, char *text, int line_no) {
+static int handle_pair(parser_t *prs, const char *text, int line_no) {
     if (!prs->in_section) {
         snprintf(prs->err, prs->err_sz, "line %d: key/value outside of a '[joint <name>]' section",
                  line_no);
