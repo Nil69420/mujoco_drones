@@ -40,4 +40,10 @@ sleep 2
 ( cd "$WORK/rootfs" && exec env PX4_SIM_MODEL=mujoco_plus_quad "$PX4_BIN" -d "$WORK/etc" ) > "$WORK/px4.log" 2>&1 &
 PX4_PID=$!
 sleep 5
-"$PY" -u -I "$SRC_DIR/tests/px4_e2e.py" udpin:0.0.0.0:14550
+if ! "$PY" -u -I "$SRC_DIR/tests/px4_e2e.py" udpin:0.0.0.0:14550; then
+    echo "--- simulator log (tail) ---"
+    tail -n 40 "$WORK/sim.log" || true
+    echo "--- px4 log (tail) ---"
+    tail -n 80 "$WORK/px4.log" || true
+    exit 1
+fi

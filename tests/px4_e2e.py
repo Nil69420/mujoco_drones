@@ -35,11 +35,14 @@ def main():
     link.wait_heartbeat(timeout=180)
     deadline = time.time() + 240
     ready = False
+    last_flags = None
     while time.time() < deadline and not ready:
         msg = wait_for(link, ["ESTIMATOR_STATUS"], 2)
+        if msg is not None:
+            last_flags = msg.flags
         ready = msg is not None and bool(msg.flags & EKF_POS_HORIZ_ABS)
     if not ready:
-        print("FAIL: estimator never got a global position")
+        print("FAIL: estimator never got a global position (last estimator flags %s)" % last_flags)
         return 1
     home = latest(link, "HOME_POSITION", 3.0)
     if home is None:
