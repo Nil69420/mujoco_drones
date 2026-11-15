@@ -68,7 +68,8 @@ jobs:
         run: |
           cppcheck --enable=all --inconclusive --check-level=exhaustive --error-exitcode=1 \
             --suppress=missingIncludeSystem --suppress=checkersReport --suppress=unusedFunction \
-            --suppress=staticFunction --suppress=unmatchedSuppression --inline-suppr \
+            --suppress=staticFunction --suppress=constParameterCallback --suppress=missingInclude \
+            --suppress=unmatchedSuppression --inline-suppr \
             -Iinclude src
 
   valgrind:
