@@ -84,8 +84,10 @@ def history():
             if line.startswith("[bridge] t="):
                 time_s = float(line.split("t=")[1].split()[0])
                 numbers = line.split("pos=(")[1].split(")")[0].split()
-                yaw_deg = float(line.split("yaw=")[1])
-                rows.append((time_s, float(numbers[0]), float(numbers[1]), float(numbers[2]), yaw_deg))
+                yaw_deg = float(line.split("yaw=")[1].split()[0])
+                pitch_up = float(line.split("pitch_up=")[1].split()[0])
+                roll_right = float(line.split("roll_right=")[1].split()[0])
+                rows.append((time_s, float(numbers[0]), float(numbers[1]), float(numbers[2]), yaw_deg, pitch_up, roll_right))
     return rows
 
 
@@ -117,24 +119,26 @@ class Radio:
             time.sleep(0.01)
 
 
-def pulse(radio, index, value, seconds=1.4, settle=2.5):
+ATTITUDE_COLUMN = {"pitch_up": 5, "roll_right": 6}
+RESPONSE_DEGREES = 6.0
+SETTLE_SECONDS = 2.5
+
+
+def pulse(radio, index, value, axis, seconds=1.2):
+    time.sleep(SETTLE_SECONDS)
+    column = ATTITUDE_COLUMN[axis]
     rows = history()
-    start = rows[-1]
-    before = sample_at(rows, start[0] - 1.0)
-    span = max(start[0] - before[0], 0.25)
-    velocity = ((start[1] - before[1]) / span, (start[2] - before[2]) / span)
+    if not rows:
+        return None
+    start_time = rows[-1][0]
+    baseline = rows[-1][column]
     radio.channels[index] = value
     time.sleep(seconds)
     radio.channels[index] = 1500
-    time.sleep(settle)
-    end = history()[-1]
-    elapsed = end[0] - start[0]
-    east = end[1] - start[1] - velocity[0] * elapsed
-    north = end[2] - start[2] - velocity[1] * elapsed
-    heading = math.radians(start[4])
-    forward = east * math.cos(heading) + north * math.sin(heading)
-    right = east * math.sin(heading) - north * math.cos(heading)
-    return forward, right
+    window = [row[column] - baseline for row in history() if row[0] >= start_time]
+    if not window:
+        return None
+    return max(window, key=abs)
 
 
 def lift_off(radio, ground):
@@ -170,18 +174,18 @@ def main():
     radio.channels[2] = HOVER_THROTTLE
     time.sleep(1.5)
     print("altitude %.2f m above the ground" % (truth()[2] - ground))
-    forward = pulse(radio, 1, 1700)
-    back = pulse(radio, 1, 1300)
-    right = pulse(radio, 0, 1700)
-    left = pulse(radio, 0, 1300)
-    print("pitch forward %s back %s roll right %s left %s (forward, right metres)" % (forward, back, right, left))
+    forward = pulse(radio, 1, 1700, "pitch_up")
+    back = pulse(radio, 1, 1300, "pitch_up")
+    right = pulse(radio, 0, 1700, "roll_right")
+    left = pulse(radio, 0, 1300, "roll_right")
+    print("attitude change: forward stick pitch_up %s, back stick pitch_up %s, right stick roll_right %s, left stick roll_right %s (degrees)" % (forward, back, right, left))
     if None in (forward, back, right, left):
-        print("FAIL: lost telemetry")
+        print("FAIL: telemetry was lost")
         return 1
-    if forward[0] - back[0] < 0.5:
+    if not (forward <= -RESPONSE_DEGREES and back >= RESPONSE_DEGREES):
         print("FAIL: pitch stick direction")
         return 1
-    if right[1] - left[1] < 0.3:
+    if not (right >= RESPONSE_DEGREES and left <= -RESPONSE_DEGREES):
         print("FAIL: roll stick direction")
         return 1
     before = truth()[3]
