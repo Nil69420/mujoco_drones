@@ -10,7 +10,7 @@
 
 void sensor_update_conditions(sensor_mgr_t *mgr, const mjData *data) {
     double fraction = 0.0;
-    if (mgr->use_vibration && mgr->thrust_max > 0.0) {
+    if ((mgr->use_vibration || mgr->use_effects) && mgr->thrust_max > 0.0) {
         double rpm[4];
         for (int i = 0; i < 4; i++) {
             double f = data->ctrl[mgr->act_thrust[i]] / mgr->thrust_max;
@@ -18,9 +18,12 @@ void sensor_update_conditions(sensor_mgr_t *mgr, const mjData *data) {
             rpm[i] = SENSOR_ROTOR_RATED_RPM * sqrt(f);
             fraction += f * 0.25;
         }
-        vibration_step(&mgr->vibration, rpm, mgr->sim_dt, mgr->vib_accel, mgr->vib_gyro);
+        if (mgr->use_vibration) {
+            vibration_step(&mgr->vibration, rpm, mgr->sim_dt, mgr->vib_accel, mgr->vib_gyro);
+        }
     }
-    mgr->thrust_fraction = fraction;
+    mgr->airframe_thrust_fraction = fraction;
+    mgr->thrust_fraction = mgr->use_vibration ? fraction : 0.0;
     double heat = mgr->use_vibration ? 1.0 : 0.0;
     mgr->thermal.self_heating_k = SENSOR_SELF_HEATING_K * heat;
     mgr->sensor_temp_c = thermal_step(&mgr->thermal, mgr->config.ambient_temp_c, mgr->sim_dt);
@@ -40,6 +43,9 @@ void sensor_read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
                        &data->sensordata[mgr->adr_accel], mgr->sensor_temp_c,
                        mgr->use_vibration ? mgr->vib_accel : zero,
                        mgr->use_vibration ? mgr->vib_gyro : zero, msg.gyro, msg.accel);
+        if (mgr->use_effects) {
+            msg.accel[2] -= airframe_effects_accel_z_offset(&mgr->effects, mgr->airframe_thrust_fraction);
+        }
     }
 
     for (int i = 0; i < 3 && !mgr->use_imu_model; i++) {
@@ -165,7 +171,11 @@ void sensor_read_baro(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
     if (mgr->use_baro_model) {
         atmosphere_sample_t atm = atmosphere_at(mgr->config.ambient_temp_c,
                                                 mgr->config.sea_level_pressure_pa, true_alt);
-        msg.pressure_pa = baro_model_step(&mgr->baro_model, atm.pressure_pa,
+        double pressure_pa = mgr->use_effects
+                                 ? airframe_effects_baro(&mgr->effects, atm.pressure_pa,
+                                                         1.0 / mgr->config.baro_rate)
+                                 : atm.pressure_pa;
+        msg.pressure_pa = baro_model_step(&mgr->baro_model, pressure_pa,
                                           mgr->sensor_temp_c, mgr->thrust_fraction);
         msg.altitude_m = baro_pressure_to_altitude(msg.pressure_pa,
                                                    mgr->config.sea_level_pressure_pa);

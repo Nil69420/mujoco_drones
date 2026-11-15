@@ -126,7 +126,13 @@ void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
     mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
 
     if (mgr->use_cam_model) {
-        uint64_t t_mono = (uint64_t)(data->time * 1e9);
+        if (mgr->use_effects && airframe_effects_camera_dropped(&mgr->effects)) {
+            mgr->seq_camera++;
+            return;
+        }
+        double stamp_s = mgr->use_effects ? airframe_effects_camera_stamp(&mgr->effects, data->time)
+                                          : data->time;
+        uint64_t t_mono = stamp_s > 0.0 ? (uint64_t)(stamp_s * 1e9) : 0U;
         size_t mono_sz = (size_t)(unsigned)w * (unsigned)h;
         uint8_t *frame = frame_out_loan(&mgr->cam_out, sizeof(sensor_camera_rgb_hdr_t) + mono_sz);
         if (frame == NULL) {

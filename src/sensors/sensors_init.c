@@ -15,6 +15,7 @@ enum {
     SEED_MAG = 1004,
     SEED_VIBRATION = 1005,
     SEED_RANGE = 1007,
+    SEED_EFFECTS = 1008,
     NAME_LEN = 160,
     ROTORS = 4
 };
@@ -160,6 +161,26 @@ static int init_environment(sensor_mgr_t *mgr, const sensor_config_t *cfg) {
     return 0;
 }
 
+static int init_effects(sensor_mgr_t *mgr, const sensor_config_t *cfg) {
+    if (cfg->effects == NULL) {
+        return 0;
+    }
+    if ((cfg->effects->accel_thrust_deficit_mps2 > 0.0 && cfg->imu_profile == NULL) ||
+        (cfg->effects->baro_lag_s > 0.0 && cfg->baro_profile == NULL) ||
+        ((cfg->effects->camera_drop_probability > 0.0 || cfg->effects->camera_time_shift_s != 0.0) &&
+         cfg->camera_profile == NULL)) {
+        fprintf(stderr, "[sensors] airframe effects need the IMU, barometer and camera profiles they modify\n");
+        return -1;
+    }
+    if (airframe_effects_init(&mgr->effects, cfg->effects, SEED_EFFECTS) != 0) {
+        fprintf(stderr, "[sensors] airframe effects rejected: a term is missing or out of range\n");
+        return -1;
+    }
+    mgr->use_effects = true;
+    mgr->config.effects = NULL;
+    return 0;
+}
+
 static int init_imu_gnss_baro(sensor_mgr_t *mgr, const sensor_config_t *cfg) {
     if (cfg->imu_profile != NULL) {
         const imu_profile_t *prf = imu_profile_find(cfg->imu_profile);
@@ -226,7 +247,8 @@ static int init_mag_range(sensor_mgr_t *mgr, const sensor_config_t *cfg) {
 
 static int init_vibration(sensor_mgr_t *mgr, const mjModel *mdl, const sensor_config_t *cfg,
                           const char *prefix) {
-    if (cfg->vibration_scale <= 0.0) {
+    bool vibrating = cfg->vibration_scale > 0.0;
+    if (!vibrating && !mgr->use_effects) {
         return 0;
     }
     bool found = true;
@@ -236,14 +258,20 @@ static int init_vibration(sensor_mgr_t *mgr, const mjModel *mdl, const sensor_co
         mgr->act_thrust[rotor] = resolve_named(mdl, mjOBJ_ACTUATOR, prefix, base);
         found = found && mgr->act_thrust[rotor] >= 0;
     }
-    if (!found ||
-        vibration_init(&mgr->vibration, ROTORS, 2, SENSOR_ROTOR_RATED_RPM,
-                       SENSOR_VIBRATION_BASE_MS2 * cfg->vibration_scale, SENSOR_MOUNT_HZ,
-                       SENSOR_MOUNT_ZETA, SEED_VIBRATION) != 0) {
-        fprintf(stderr, "[sensors] vibration needs actuators thrust_0..3\n");
+    if (!found) {
+        fprintf(stderr, "[sensors] vibration and airframe effects need actuators thrust_0..3\n");
         return -1;
     }
     mgr->thrust_max = mdl->actuator_ctrlrange[2 * mgr->act_thrust[0] + 1];
+    if (!vibrating) {
+        return 0;
+    }
+    if (vibration_init(&mgr->vibration, ROTORS, 2, SENSOR_ROTOR_RATED_RPM,
+                       SENSOR_VIBRATION_BASE_MS2 * cfg->vibration_scale, SENSOR_MOUNT_HZ,
+                       SENSOR_MOUNT_ZETA, SEED_VIBRATION) != 0) {
+        fprintf(stderr, "[sensors] vibration model rejected its parameters\n");
+        return -1;
+    }
     mgr->use_vibration = true;
     return 0;
 }
@@ -258,7 +286,7 @@ int sensor_init(sensor_mgr_t *mgr, const mjModel *model, transport_t *tp,
     noise_seed(&mgr->rng, 42);
 
     int failed = resolve_handles(mgr, model, topic_prefix) != 0 || check_rates(mgr, config) != 0 ||
-                 init_environment(mgr, config) != 0 || init_imu_gnss_baro(mgr, config) != 0 ||
+                 init_environment(mgr, config) != 0 || init_imu_gnss_baro(mgr, config) != 0 || init_effects(mgr, config) != 0 ||
                  init_mag_range(mgr, config) != 0 ||
                  init_vibration(mgr, model, config, topic_prefix) != 0;
     if (!failed) {

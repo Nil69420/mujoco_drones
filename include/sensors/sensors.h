@@ -7,6 +7,7 @@
 
 #include "sensors/sensor_types.h"
 #include "sensors/noise.h"
+#include "sensors/models/airframe_effects.h"
 #include "sensors/models/baro_model.h"
 #include "sensors/models/gnss_model.h"
 #include "sensors/models/imu_model.h"
@@ -73,6 +74,7 @@ typedef struct {
     bool camera_legacy_topic;
     double camera_exposure_s;
     double vibration_scale;
+    const airframe_effects_params_t *effects;
     double mag_field_enu_ut[3];
     double sky_visibility;
     double multipath_scale;
@@ -146,6 +148,8 @@ typedef struct {
     gnss_model_t gnss_model;
     baro_model_t baro_model;
     bool use_imu_model, use_gnss_model, use_baro_model, use_mag_model;
+    airframe_effects_t effects;
+    bool use_effects;
     mag_model_t  mag_model;
     range_model_t range_model;
     bool use_range_model;
@@ -160,6 +164,7 @@ typedef struct {
     double       vib_accel[3];
     double       vib_gyro[3];
     double       thrust_fraction;
+    double       airframe_thrust_fraction;
 } sensor_mgr_t;
 
 sensor_config_t sensor_default_config(void);
