@@ -3,6 +3,7 @@
 #include "controller.h"
 #include "viewer.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -172,6 +173,15 @@ int main(int argc, char **argv) {
             scfg.imu_rate       = args.imu_rate;
             scfg.gnss_rate      = args.gnss_rate;
             scfg.baro_rate      = args.baro_rate;
+            airframe_effects_params_t effects;
+            if (!isnan(args.fx_accel_deficit)) {
+                effects.accel_thrust_deficit_mps2 = args.fx_accel_deficit;
+                effects.baro_lag_s = args.fx_baro_lag;
+                effects.camera_drop_probability = args.fx_cam_drop;
+                effects.camera_time_shift_s = args.fx_cam_shift;
+                effects.provenance = PROVENANCE_ASSUMED;
+                scfg.effects = &effects;
+            }
 
             scfg.camera_profile = args.cam_profile;
             scfg.camera_mono    = args.cam_mono;
@@ -195,7 +205,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
                 if (args.imu_name != NULL || args.gnss_name != NULL || args.baro_name != NULL ||
                     args.mag_name != NULL || args.range_name != NULL || args.weather != NULL || args.vibration > 0.0 ||
-                    args.cam_mono) {
+                    args.cam_mono || !isnan(args.fx_accel_deficit)) {
                     transport_shutdown(&sim.transport);
                     mj_deleteData(sim.data);
                     mj_deleteModel(sim.model);

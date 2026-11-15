@@ -49,6 +49,10 @@ static const opt_t OPTIONS[] = {
     OPT("--gnss-rtk", OPT_FLAG, gnss_rtk),
     OPT("--baro", OPT_STRING, baro_name),
     OPT("--baro-rate", OPT_DOUBLE, baro_rate),
+    OPT("--fx-accel-deficit", OPT_DOUBLE, fx_accel_deficit),
+    OPT("--fx-baro-lag", OPT_DOUBLE, fx_baro_lag),
+    OPT("--fx-cam-drop", OPT_DOUBLE, fx_cam_drop),
+    OPT("--fx-cam-shift", OPT_DOUBLE, fx_cam_shift),
     OPT("--mag", OPT_STRING, mag_name),
     OPT("--mag-rate", OPT_DOUBLE, mag_rate),
     OPT("--rangefinder", OPT_STRING, range_name),
@@ -71,6 +75,10 @@ static void set_defaults(cli_args_t *args) {
     args->gnss_rate = 10.0;
     args->ir_rate = 100.0;
     args->baro_rate = 50.0;
+    args->fx_accel_deficit = NAN;
+    args->fx_baro_lag = NAN;
+    args->fx_cam_drop = NAN;
+    args->fx_cam_shift = NAN;
 }
 
 static int parse_number(const char *text, double *out) {
@@ -128,6 +136,13 @@ static int validate(const cli_args_t *args) {
     bad |= args->cam_fps < 0.0 || args->imu_rate < 0.0 || args->gnss_rate < 0.0;
     bad |= args->baro_rate < 0.0 || args->mag_rate < 0.0 || args->ir_rate < 0.0;
     bad |= args->vibration < 0.0;
+    int fx_given = !isnan(args->fx_accel_deficit) + !isnan(args->fx_baro_lag) +
+                   !isnan(args->fx_cam_drop) + !isnan(args->fx_cam_shift);
+    if (fx_given != 0 && fx_given != 4) {
+        fprintf(stderr, "Airframe effects have no defaults: give all of --fx-accel-deficit, "
+                        "--fx-baro-lag, --fx-cam-drop and --fx-cam-shift\n");
+        return -1;
+    }
     if (bad) {
         fprintf(stderr, "Option value out of range\n");
         return -1;
@@ -184,6 +199,8 @@ void cli_print_usage(const char *prog) {
     printf("  --gnss NAME      GNSS profile; --gnss-rate HZ (default 10); --gnss-cold starts without\n");
     printf("                   a fix; --gnss-rtk enables RTK corrections\n");
     printf("  --baro NAME      Barometer profile; --baro-rate HZ (default 50)\n");
+    printf("  --fx-accel-deficit MPS2 --fx-baro-lag S --fx-cam-drop P --fx-cam-shift S\n"
+           "                   Measured airframe effects; all four or none, no defaults\n");
     printf("  --mag NAME       Magnetometer profile; --mag-rate HZ (default min(100, profile max))\n");
     printf("  --rangefinder N  Downward rangefinder profile; --rangefinder-rate HZ (default 100)\n");
     printf("  --weather NAME   Weather preset (ambient temperature, pressure, wind)\n");

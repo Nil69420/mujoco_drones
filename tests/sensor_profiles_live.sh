@@ -40,6 +40,16 @@ CALM_STD=$(echo "$CALM" | awk '/accel0 mean/ {print $5}')
 SHAKY_STD=$(echo "$SHAKY" | awk '/accel0 mean/ {print $5}')
 echo "accel0 std calm=$CALM_STD vibrating=$SHAKY_STD"
 awk -v a="$CALM_STD" -v b="$SHAKY_STD" 'BEGIN { d = b * b - a * a; exit !(d > 0 && sqrt(d) > 0.05) }' || fail "vibration did not add accelerometer noise"
+FX_BASE=$(run_tap --baro bmp388 | awk '/accel2 mean/ {print $3}')
+FX_DEF=$(run_tap --baro bmp388 --fx-accel-deficit 1.0 --fx-baro-lag 0 --fx-cam-drop 0 --fx-cam-shift 0 | awk '/accel2 mean/ {print $3}')
+echo "accel2 mean without=$FX_BASE with a 1.0 m/s^2 thrust deficit=$FX_DEF"
+awk -v a="$FX_BASE" -v b="$FX_DEF" 'BEGIN { d = a - b; exit !(d > 0.15 && d < 0.5) }' || fail "the thrust-correlated accelerometer deficit is not applied at hover thrust"
+if "$BIN_DIR/hummingbird" --headless --duration 1 --fx-accel-deficit 1.0 >/dev/null 2>&1; then
+    fail "partial airframe effects were accepted"
+fi
+if "$BIN_DIR/hummingbird" --headless --duration 1 --fx-accel-deficit 1.0 --fx-baro-lag 0 --fx-cam-drop 0 --fx-cam-shift 0 >/dev/null 2>&1; then
+    fail "an accelerometer deficit without an IMU profile was accepted"
+fi
 MAGZ=$(echo "$CALM" | awk '/mag2 mean/ {print $3}')
 awk -v z="$MAGZ" 'BEGIN { exit !(z < -35 && z > -50) }' || fail "magnetometer vertical component $MAGZ outside the expected Earth field"
 "$BIN_DIR/hummingbird" --headless --duration 15 --altitude 3 --rangefinder tf02_pro --rangefinder-rate 100 >/dev/null 2>&1 &

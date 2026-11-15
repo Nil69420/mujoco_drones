@@ -30,6 +30,10 @@ typedef struct {
     double imu_rate;
     double gnss_rate;
     double baro_rate;
+    double fx_accel_deficit;
+    double fx_baro_lag;
+    double fx_cam_drop;
+    double fx_cam_shift;
     bool list_sensors;
     const char *scenario_path;
 } cli_args_t;

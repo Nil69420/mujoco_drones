@@ -1,6 +1,7 @@
 #include "cli.h"
 #include "test_support.h"
 
+#include <math.h>
 #include <string.h>
 
 static int parse(int argc, char **argv, cli_args_t *out) {
@@ -24,6 +25,18 @@ int main(void) {
     CHECK(args.cam_w == 1280 && args.cam_h == 720 && args.cam_fps == 120.0);
     CHECK(strcmp(args.scenario_path, "a.scn") == 0 && strcmp(args.weather, "storm") == 0);
     CHECK(args.vibration == 1.5);
+
+    CHECK(isnan(args.fx_accel_deficit) && isnan(args.fx_baro_lag));
+    char *fx_all[] = {"prog", "--fx-accel-deficit", "0.4", "--fx-baro-lag", "0.25",
+                      "--fx-cam-drop", "0.02", "--fx-cam-shift", "-0.012"};
+    CHECK(parse(9, fx_all, &args) == 0);
+    CHECK(args.fx_accel_deficit == 0.4 && args.fx_baro_lag == 0.25 && args.fx_cam_drop == 0.02 &&
+          args.fx_cam_shift == -0.012);
+    char *fx_partial[] = {"prog", "--fx-accel-deficit", "0.4"};
+    CHECK(parse(3, fx_partial, &args) < 0);
+    char *fx_three[] = {"prog", "--fx-accel-deficit", "0.4", "--fx-baro-lag", "0.25",
+                        "--fx-cam-drop", "0.02"};
+    CHECK(parse(7, fx_three, &args) < 0);
 
     char *help[] = {"prog", "--help"};
     CHECK(parse(2, help, &args) > 0);
