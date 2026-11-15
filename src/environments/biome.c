@@ -117,7 +117,7 @@ int biome_generate(mjSpec *spec, const biome_profile_t *profile, unsigned seed) 
     double vis = profile->climate.visibility_range_m;
     spec->visual.map.fogend = (float)vis;
     spec->visual.map.fogstart = (float)(0.2 * vis);
-    spec->visual.map.zfar = (float)(vis > 2000.0 ? 2000.0 : (vis < 500.0 ? 500.0 : vis));
+    spec->visual.map.zfar = (float)fmin(fmax(vis, 500.0), 2000.0);
     noise_rng_t rng;
     noise_seed(&rng, seed);
     for (int i = 0; i < BIOME_MAX_SCATTER; i++) {

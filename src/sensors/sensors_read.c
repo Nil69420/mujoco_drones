@@ -14,7 +14,7 @@ void sensor_update_conditions(sensor_mgr_t *mgr, const mjData *data) {
         double rpm[4];
         for (int i = 0; i < 4; i++) {
             double f = data->ctrl[mgr->act_thrust[i]] / mgr->thrust_max;
-            f = f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f);
+            f = fmin(fmax(f, 0.0), 1.0);
             rpm[i] = SENSOR_ROTOR_RATED_RPM * sqrt(f);
             fraction += f * 0.25;
         }

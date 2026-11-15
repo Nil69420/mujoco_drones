@@ -45,7 +45,7 @@ static void make_sample(gnss_model_t *m, double t_s, const double pos[3], const 
     gnss_sample_t smp;
     memset(&smp, 0, sizeof(smp));
     smp.stamp_s = t_s;
-    double vis = env->sky_visibility < 0.0 ? 0.0 : (env->sky_visibility > 1.0 ? 1.0 : env->sky_visibility);
+    double vis = fmin(fmax(env->sky_visibility, 0.0), 1.0);
     double mult = env->multipath_scale < 1.0 ? 1.0 : env->multipath_scale;
     smp.satellites = (int)lround(6.0 + 20.0 * vis);
     smp.hdop = 0.6 + 2.4 * (1.0 - vis) + 0.2 * (mult - 1.0);

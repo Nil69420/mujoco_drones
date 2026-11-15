@@ -17,7 +17,7 @@ int range_model_init(range_model_t *model, const range_profile_t *profile, doubl
 }
 
 double range_effective_max(const range_profile_t *profile, double reflectivity) {
-    double refl = reflectivity < 0.1 ? 0.1 : (reflectivity > 0.9 ? 0.9 : reflectivity);
+    double refl = fmin(fmax(reflectivity, 0.1), 0.9);
     double f = (refl - 0.1) / 0.8;
     return profile->max_range_10_m + (profile->max_range_90_m - profile->max_range_10_m) * f;
 }
