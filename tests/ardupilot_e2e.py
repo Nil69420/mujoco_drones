@@ -77,9 +77,12 @@ def main():
     end = time.time() + 90
     landed = False
     while time.time() < end and not landed:
-        pos = wait_for(link, ["LOCAL_POSITION_NED"], 2)
-        beat = link.recv_match(type="HEARTBEAT", blocking=False)
-        if beat is not None and not (beat.base_mode & 128):
+        msg = wait_for(link, ["LOCAL_POSITION_NED", "HEARTBEAT"], 2)
+        if msg is None:
+            continue
+        if msg.get_type() == "LOCAL_POSITION_NED":
+            pos = msg
+        elif not (msg.base_mode & 128):
             landed = True
     print("landed %s altitude %.2f" % (landed, -pos.z))
     if not landed:
