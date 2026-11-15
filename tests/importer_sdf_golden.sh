@@ -18,6 +18,31 @@ for dir in "$SRC_DIR"/tests/golden/importer_sdf/*/; do
 done
 
 work=$(mktemp -d)
+mkdir -p "$work/model/airframes" "$work/src/vehicle/airframes"
+(cd "$work" && "$BIN_DIR/urdf_import" "$SRC_DIR/tests/golden/importer_sdf/pose_chain_sdf/in" pose_chain_sdf --class rotor_multicopter > log.txt 2>&1) || { cat "$work/log.txt"; fail "the pose chain did not import"; }
+urdf="$work/model/airframes/pose_chain_sdf/pose_chain_sdf_source.urdf"
+grep -q '<origin xyz="0.2 0.05 0" rpy="0 0 1.57079633"/>' "$urdf" ||
+    fail "the joint origin is not inverse(parent pose) * child pose * joint pose"
+grep -q '<origin xyz="0.3 0 0" rpy="0 0 -1.57079633"/>' "$urdf" ||
+    fail "a child of a rotated parent has the wrong joint origin"
+grep -q '<axis xyz="0 1 0"/>' "$urdf" ||
+    fail "an axis given in the model frame was not converted into the joint frame"
+grep -q '<visual name="arm_visual"><origin xyz="0.05 0 0" rpy="0 0 0"/>' "$urdf" ||
+    fail "the child visual was not re-based into the joint frame"
+grep -q '<inertial><origin xyz="0.05 0 0" rpy="0 0 0"/><mass value="0.1"/>' "$urdf" ||
+    fail "the child inertial was not re-based into the joint frame"
+rm -rf "$work"
+
+work=$(mktemp -d)
+mkdir -p "$work/in" "$work/model/airframes" "$work/src/vehicle/airframes"
+cp "$SRC_DIR/tests/golden/importer_sdf/mini_quad_sdf/in/mini_quad_sdf.sdf" "$work/in/"
+sed "s#<pose>-0.1 0.1 0.03 0 0 0</pose>#<pose relative_to=\"base_link\">-0.1 0.1 0.03 0 0 0</pose>#" "$work/in/mini_quad_sdf.sdf" > "$work/in/rel.tmp"
+mv "$work/in/rel.tmp" "$work/in/mini_quad_sdf.sdf"
+(cd "$work" && "$BIN_DIR/urdf_import" in relative_to_pose --class rotor_multicopter > log.txt 2>&1) || { cat "$work/log.txt"; fail "a relative_to pose stopped the import"; }
+grep -q "relative_to" "$work/log.txt" || fail "an unsupported relative_to pose was accepted silently"
+rm -rf "$work"
+
+work=$(mktemp -d)
 mkdir -p "$work/in" "$work/model/airframes" "$work/src/vehicle/airframes"
 cp "$SRC_DIR/tests/golden/importer_sdf/mini_quad_sdf/in/mini_quad_sdf.sdf" "$work/in/"
 sed 's#<pose>0.1 0.1 0.03 0 0 0</pose>#<pose>not a pose</pose>#' "$work/in/mini_quad_sdf.sdf" > "$work/in/bad.sdf.tmp"

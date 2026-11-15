@@ -18,6 +18,7 @@
       </visual>
     </link>
     <link name="rotor_0">
+      <pose>0.1 0.1 0.03 0 0 0</pose>
       <inertial>
         <mass>0.005</mass>
         <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
@@ -30,12 +31,12 @@
       </visual>
     </link>
     <joint name="rotor_0_joint" type="revolute">
-      <pose>0.1 0.1 0.03 0 0 0</pose>
       <parent>base_link</parent>
       <child>rotor_0</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
     <link name="rotor_1">
+      <pose>-0.1 -0.1 0.03 0 0 0</pose>
       <inertial>
         <mass>0.005</mass>
         <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
@@ -48,12 +49,12 @@
       </visual>
     </link>
     <joint name="rotor_1_joint" type="revolute">
-      <pose>-0.1 -0.1 0.03 0 0 0</pose>
       <parent>base_link</parent>
       <child>rotor_1</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
     <link name="rotor_2">
+      <pose>0.1 -0.1 0.03 0 0 0</pose>
       <inertial>
         <mass>0.005</mass>
         <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
@@ -66,12 +67,12 @@
       </visual>
     </link>
     <joint name="rotor_2_joint" type="revolute">
-      <pose>0.1 -0.1 0.03 0 0 0</pose>
       <parent>base_link</parent>
       <child>rotor_2</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
     <link name="rotor_3">
+      <pose>-0.1 0.1 0.03 0 0 0</pose>
       <inertial>
         <mass>0.005</mass>
         <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz><iyy>1e-4</iyy><iyz>0</iyz><izz>1e-4</izz></inertia>
@@ -84,7 +85,6 @@
       </visual>
     </link>
     <joint name="rotor_3_joint" type="revolute">
-      <pose>-0.1 0.1 0.03 0 0 0</pose>
       <parent>base_link</parent>
       <child>rotor_3</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>

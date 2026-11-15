@@ -1,8 +1,10 @@
 #define _GNU_SOURCE
 #include "urdf_import_sdf.h"
+#include "urdf_import_pose.h"
 #include "urdf_import_xml.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,22 +117,6 @@ static const sdf_node_t *node_child(const sdf_node_t *n, const char *name) {
     return NULL;
 }
 
-static int pose_is_identity(const char *pose) {
-    if (!pose) {
-        return 1;
-    }
-    const char *cursor = pose;
-    for (int i = 0; i < 6; i++) {
-        char *end = NULL;
-        double value = strtod(cursor, &end);
-        if (end == cursor || value != 0.0) {
-            return 0;
-        }
-        cursor = end;
-    }
-    return 1;
-}
-
 static int node_text_double(const sdf_node_t *n, const char *child, double *out) {
     const sdf_node_t *kid = node_child(n, child);
     if (!kid || !kid->text) {
@@ -141,37 +127,51 @@ static int node_text_double(const sdf_node_t *n, const char *child, double *out)
     return end != kid->text && *end == '\0' ? 0 : -1;
 }
 
-static int parse_pose(const char *text, double out[6]) {
-    if (!text) {
-        return -1;
-    }
-    const char *cursor = text;
+static void emit_origin(sb_t *sb, const imp_pose_t *pose) {
+    double values[6];
+    imp_pose_to_xyzrpy(pose, values);
     for (int i = 0; i < 6; i++) {
-        char *end = NULL;
-        out[i] = strtod(cursor, &end);
-        if (end == cursor) {
-            return -1;
+        if (fabs(values[i]) < 1e-12) {
+            values[i] = 0.0;
         }
-        cursor = end;
     }
-    return 0;
+    sb_printf(sb, "<origin xyz=\"%.9g %.9g %.9g\" rpy=\"%.9g %.9g %.9g\"/>", values[0], values[1],
+              values[2], values[3], values[4], values[5]);
 }
 
-static void emit_pose_origin(sb_t *sb, const char *pose_text) {
-    double vals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    if (pose_text != NULL) {
-        double parsed[6];
-        if (parse_pose(pose_text, parsed) == 0) {
-            memcpy(vals, parsed, sizeof(vals));
-        } else {
-            fprintf(stderr,
-                    "urdf_import: SDF: warning: unreadable pose '%s'; using "
-                    "identity\n",
-                    pose_text);
-        }
+static imp_pose_t read_pose(const sdf_node_t *owner, const char *what) {
+    imp_pose_t pose = imp_pose_identity();
+    const sdf_node_t *node = owner ? node_child(owner, "pose") : NULL;
+    if (node == NULL || node->text == NULL) {
+        return pose;
     }
-    sb_printf(sb, "<origin xyz=\"%g %g %g\" rpy=\"%g %g %g\"/>", vals[0], vals[1], vals[2], vals[3],
-              vals[4], vals[5]);
+    if (node_attr(node, "relative_to") != NULL) {
+        fprintf(stderr,
+                "urdf_import: SDF: warning: <pose relative_to> on %s is not supported; "
+                "reading it as relative to the default frame\n",
+                what);
+    }
+    if (imp_pose_parse(node->text, &pose) != 0) {
+        fprintf(stderr, "urdf_import: SDF: warning: unreadable pose '%s' on %s; using identity\n",
+                node->text, what);
+        return imp_pose_identity();
+    }
+    return pose;
+}
+
+typedef struct {
+    const char *name;
+    imp_pose_t pose;
+    imp_pose_t joint_frame;
+    int attached;
+} link_frame_t;
+
+static imp_pose_t rebase_into_joint_frame(const link_frame_t *frame, const imp_pose_t *element) {
+    if (frame == NULL || !frame->attached) {
+        return *element;
+    }
+    imp_pose_t inverse = imp_pose_inverse(&frame->joint_frame);
+    return imp_pose_multiply(&inverse, element);
 }
 
 static void emit_geometry(sb_t *sb, const sdf_node_t *geom, int is_collision) {
@@ -244,7 +244,7 @@ static void emit_geometry(sb_t *sb, const sdf_node_t *geom, int is_collision) {
     sb_printf(sb, "<geometry><box size=\"1 1 1\"/></geometry>");
 }
 
-static void emit_link(sb_t *sb, const sdf_node_t *link) {
+static void emit_link(sb_t *sb, const sdf_node_t *link, const link_frame_t *frame) {
     const char *name = node_attr(link, "name");
     if (!name) {
         name = "unnamed_link";
@@ -252,9 +252,10 @@ static void emit_link(sb_t *sb, const sdf_node_t *link) {
     sb_printf(sb, "  <link name=\"%s\">\n", name);
 
     const sdf_node_t *inertial = node_child(link, "inertial");
-    const sdf_node_t *ipose = inertial ? node_child(inertial, "pose") : NULL;
+    imp_pose_t authored_inertial = read_pose(inertial, "an inertial element");
+    imp_pose_t inertial_pose = rebase_into_joint_frame(frame, &authored_inertial);
     sb_printf(sb, "    <inertial>");
-    emit_pose_origin(sb, ipose && ipose->text ? ipose->text : NULL);
+    emit_origin(sb, &inertial_pose);
     double mass = 1e-6;
     if (inertial && node_text_double(inertial, "mass", &mass) != 0) {
         fprintf(stderr,
@@ -293,11 +294,11 @@ static void emit_link(sb_t *sb, const sdf_node_t *link) {
         const sdf_node_t *child = link->children[i];
         if (strcmp(child->name, "visual") == 0 || strcmp(child->name, "collision") == 0) {
             int is_collision = strcmp(child->name, "collision") == 0;
-            const sdf_node_t *pose = node_child(child, "pose");
-            const char *pose_text = pose && pose->text ? pose->text : "0 0 0 0 0 0";
+            imp_pose_t authored = read_pose(child, "a visual or collision element");
+            imp_pose_t element_pose = rebase_into_joint_frame(frame, &authored);
             sb_printf(sb, "    <%s name=\"%s\">", child->name,
                       node_attr(child, "name") ? node_attr(child, "name") : "");
-            emit_pose_origin(sb, pose_text);
+            emit_origin(sb, &element_pose);
             emit_geometry(sb, node_child(child, "geometry"), is_collision);
             sb_printf(sb, "</%s>\n", child->name);
         }
@@ -305,30 +306,89 @@ static void emit_link(sb_t *sb, const sdf_node_t *link) {
     sb_printf(sb, "  </link>\n");
 }
 
-static int collect_link_names(const sdf_node_t *model, const char **out, int cap) {
+static int collect_link_frames(const sdf_node_t *model, link_frame_t *out, int cap) {
     int count = 0;
     for (int i = 0; i < model->nchildren; i++) {
         const sdf_node_t *child = model->children[i];
         if (strcmp(child->name, "link") == 0 && count < cap) {
             const char *link_name = node_attr(child, "name");
             if (link_name) {
-                out[count++] = link_name;
+                out[count].name = link_name;
+                out[count].pose = read_pose(child, "a link");
+                out[count].joint_frame = imp_pose_identity();
+                out[count].attached = 0;
+                count++;
             }
         }
     }
     return count;
 }
 
-static int link_exists(const char *name, const char *const *links, int nlinks) {
-    for (int i = 0; i < nlinks; i++) {
-        if (strcmp(links[i], name) == 0) {
-            return 1;
+static const link_frame_t *find_link_frame(const char *name, const link_frame_t *frames, int count) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(frames[i].name, name) == 0) {
+            return &frames[i];
         }
     }
-    return 0;
+    return NULL;
 }
 
-static void emit_joint(sb_t *sb, const sdf_node_t *joint, const char *const *links, int nlinks) {
+static void attach_joint_frames(const sdf_node_t *model, link_frame_t *frames, int count) {
+    for (int i = 0; i < model->nchildren; i++) {
+        const sdf_node_t *joint = model->children[i];
+        if (strcmp(joint->name, "joint") != 0) {
+            continue;
+        }
+        const sdf_node_t *child = node_child(joint, "child");
+        const sdf_node_t *parent = node_child(joint, "parent");
+        if (child == NULL || child->text == NULL || parent == NULL || parent->text == NULL ||
+            find_link_frame(parent->text, frames, count) == NULL) {
+            continue;
+        }
+        for (int k = 0; k < count; k++) {
+            if (strcmp(frames[k].name, child->text) == 0) {
+                frames[k].joint_frame = read_pose(joint, "a joint");
+                frames[k].attached = 1;
+            }
+        }
+    }
+}
+
+static int flag_is_set(const sdf_node_t *flag) {
+    return flag != NULL && flag->text != NULL &&
+           (strcmp(flag->text, "1") == 0 || strcmp(flag->text, "true") == 0);
+}
+
+static void emit_axis(sb_t *sb, const char *text, const sdf_node_t *model_frame_flag,
+                      const link_frame_t *child_frame) {
+    double axis[3];
+    const char *cursor = text;
+    int parsed = 1;
+    for (int i = 0; i < 3; i++) {
+        char *end = NULL;
+        axis[i] = strtod(cursor, &end);
+        if (end == cursor || !isfinite(axis[i])) {
+            parsed = 0;
+            break;
+        }
+        cursor = end;
+    }
+    if (!parsed || !flag_is_set(model_frame_flag)) {
+        sb_printf(sb, "    <axis xyz=\"%s\"/>\n", text);
+        return;
+    }
+    imp_pose_t joint_frame = imp_pose_multiply(&child_frame->pose, &child_frame->joint_frame);
+    double local[3];
+    imp_pose_unrotate(&joint_frame, axis, local);
+    for (int i = 0; i < 3; i++) {
+        if (fabs(local[i]) < 1e-12) {
+            local[i] = 0.0;
+        }
+    }
+    sb_printf(sb, "    <axis xyz=\"%.9g %.9g %.9g\"/>\n", local[0], local[1], local[2]);
+}
+
+static void emit_joint(sb_t *sb, const sdf_node_t *joint, const link_frame_t *frames, int count) {
     const char *name = node_attr(joint, "name");
     const char *type = node_attr(joint, "type");
     if (!name) {
@@ -353,7 +413,9 @@ static void emit_joint(sb_t *sb, const sdf_node_t *joint, const char *const *lin
     const sdf_node_t *child = node_child(joint, "child");
     const char *parent_name = parent && parent->text ? parent->text : "";
     const char *child_name = child && child->text ? child->text : "";
-    if (!link_exists(parent_name, links, nlinks) || !link_exists(child_name, links, nlinks)) {
+    const link_frame_t *parent_frame = find_link_frame(parent_name, frames, count);
+    const link_frame_t *child_frame = find_link_frame(child_name, frames, count);
+    if (parent_frame == NULL || child_frame == NULL) {
         fprintf(stderr,
                 "urdf_import: SDF: warning: joint '%s' dropped (link '%s' or '%s' "
                 "not a model link - comes from an external include)\n",
@@ -361,10 +423,11 @@ static void emit_joint(sb_t *sb, const sdf_node_t *joint, const char *const *lin
         return;
     }
     sb_printf(sb, "  <joint name=\"%s\" type=\"%s\">\n", name, type);
-    const sdf_node_t *pose = node_child(joint, "pose");
-    const char *pose_text = pose && pose->text ? pose->text : "0 0 0 0 0 0";
+    imp_pose_t parent_inverse = imp_pose_inverse(&parent_frame->pose);
+    imp_pose_t child_in_parent = imp_pose_multiply(&parent_inverse, &child_frame->pose);
+    imp_pose_t joint_origin = imp_pose_multiply(&child_in_parent, &child_frame->joint_frame);
     sb_printf(sb, "    ");
-    emit_pose_origin(sb, pose_text);
+    emit_origin(sb, &joint_origin);
     sb_printf(sb, "\n");
     sb_printf(sb, "    <parent link=\"%s\"/>\n", parent_name);
     sb_printf(sb, "    <child link=\"%s\"/>\n", child_name);
@@ -372,7 +435,7 @@ static void emit_joint(sb_t *sb, const sdf_node_t *joint, const char *const *lin
     if (axis) {
         const sdf_node_t *xyz = node_child(axis, "xyz");
         if (xyz && xyz->text) {
-            sb_printf(sb, "    <axis xyz=\"%s\"/>\n", xyz->text);
+            emit_axis(sb, xyz->text, node_child(axis, "use_parent_model_frame"), child_frame);
         }
         const sdf_node_t *limit = node_child(axis, "limit");
         if (limit) {
@@ -491,15 +554,18 @@ int sdf_to_urdf(const char *sdf_text, size_t sdf_len, char **out_urdf, size_t *o
     }
 
     const sdf_node_t *model_pose = node_child(model, "pose");
-    if (model_pose && model_pose->text && !pose_is_identity(model_pose->text)) {
+    imp_pose_t model_frame = imp_pose_identity();
+    if (model_pose && model_pose->text && imp_pose_parse(model_pose->text, &model_frame) == 0 &&
+        !imp_pose_is_identity(&model_frame)) {
         fprintf(stderr,
                 "urdf_import: SDF: warning: model pose '%s' ignored (vehicle "
                 "placement is scenario-controlled)\n",
                 model_pose->text);
     }
 
-    const char *link_names[SDF_MAX_CHILDREN];
-    int nlink_names = collect_link_names(model, link_names, SDF_MAX_CHILDREN);
+    link_frame_t frames[SDF_MAX_CHILDREN];
+    int nframes = collect_link_frames(model, frames, SDF_MAX_CHILDREN);
+    attach_joint_frames(model, frames, nframes);
 
     sb_t sb;
     memset(&sb, 0, sizeof(sb));
@@ -510,9 +576,10 @@ int sdf_to_urdf(const char *sdf_text, size_t sdf_len, char **out_urdf, size_t *o
     for (int i = 0; i < model->nchildren; i++) {
         const sdf_node_t *child = model->children[i];
         if (strcmp(child->name, "link") == 0) {
-            emit_link(&sb, child);
+            const char *link_name = node_attr(child, "name");
+            emit_link(&sb, child, link_name ? find_link_frame(link_name, frames, nframes) : NULL);
         } else if (strcmp(child->name, "joint") == 0) {
-            emit_joint(&sb, child, link_names, nlink_names);
+            emit_joint(&sb, child, frames, nframes);
         }
     }
     emit_dropped_children(model);
