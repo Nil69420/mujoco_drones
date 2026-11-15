@@ -310,6 +310,12 @@ target_compile_options(test_serialize PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_serialize PRIVATE m)
 add_test(NAME serialize COMMAND test_serialize)
 
+add_executable(test_import_pose tests/test_import_pose.c src/urdf_import_pose.c)
+target_include_directories(test_import_pose PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_import_pose PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_import_pose PRIVATE m)
+add_test(NAME import_pose COMMAND test_import_pose)
+
 add_executable(test_import_config tests/test_import_config.c src/urdf_import_config.c)
 target_include_directories(test_import_config PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(test_import_config PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -463,6 +469,7 @@ if(ENABLE_IPC)
         src/urdf_import_xml.c
         src/urdf_import_config.c
         src/urdf_import_sdf.c
+        src/urdf_import_pose.c
     )
     target_compile_options(urdf_import PRIVATE ${COMMON_COMPILE_OPTIONS})
     target_include_directories(urdf_import PRIVATE
@@ -571,6 +578,7 @@ if(CLANG_TIDY)
             "${CMAKE_SOURCE_DIR}/src/urdf_import_xml.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_config.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_sdf.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_pose.c"
         )
     endif()
 
