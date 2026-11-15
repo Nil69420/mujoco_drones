@@ -261,7 +261,7 @@ static void scan_inertial_parts(scan_state_t *st, const xml_element_t *elem) {
     }
 }
 
-static int scan_element(scan_state_t *st, xml_element_t *elem, const char *input_dir,
+static int scan_element(scan_state_t *st, const xml_element_t *elem, const char *input_dir,
                         mesh_table_t *table, visual_mesh_t *visuals, int *nvisuals,
                         int visuals_cap) {
     const char *tag = elem->name;

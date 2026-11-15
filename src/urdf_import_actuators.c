@@ -89,7 +89,7 @@ static int add_spin_actuator(mjSpec *spec, const char *jname, const config_actua
     return 1;
 }
 
-static int inject_for_joint(mjSpec *spec, actuator_config_t *cfg, const char *jname,
+static int inject_for_joint(mjSpec *spec, const actuator_config_t *cfg, const char *jname,
                             const mjsJoint *jnt) {
     joint_plan_t plan = plan_joint(cfg, jname, jnt);
     if (!plan.rotor && !plan.bounded && !plan.spin_only) {
