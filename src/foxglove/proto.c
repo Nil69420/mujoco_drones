@@ -132,19 +132,19 @@ int fg_handle_client_message(fg_client_t *client, const char *msg, size_t len,
     int rc = 0;
     if (op.kind == FG_OP_SUBSCRIBE) {
         for (int i = 0; i < op.n_subs; i++) {
-            const fg_op_sub_t *s = &op.subs[i];
-            if (s->channel_id == 0 || s->channel_id > num_channels) {
+            const fg_op_sub_t *sub = &op.subs[i];
+            if (sub->channel_id == 0 || sub->channel_id > num_channels) {
                 (void)fg_send_status(client, 2, "unknown channel");
                 rc = -1;
-            } else if (fg_find_sub_id(client, s->id) >= 0) {
+            } else if (fg_find_sub_id(client, sub->id) >= 0) {
                 (void)fg_send_status(client, 2, "duplicate subscription id");
                 rc = -1;
             } else if (client->num_subs >= FG_MAX_SUBS) {
                 (void)fg_send_status(client, 2, "too many subscriptions");
                 rc = -1;
             } else {
-                client->subs[client->num_subs].sub_id = s->id;
-                client->subs[client->num_subs].channel_id = s->channel_id;
+                client->subs[client->num_subs].sub_id = sub->id;
+                client->subs[client->num_subs].channel_id = sub->channel_id;
                 client->num_subs++;
             }
         }
