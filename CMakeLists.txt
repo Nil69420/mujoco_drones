@@ -137,6 +137,7 @@ set(MDMODEL_SOURCES
     src/sensors/models/gnss_profiles.c
     src/sensors/models/baro_model.c
     src/sensors/models/baro_profiles.c
+    src/sensors/models/airframe_effects.c
     src/sensors/models/mag_model.c
     src/sensors/models/mag_profiles.c
     src/sensors/models/range_model.c
@@ -194,6 +195,12 @@ target_include_directories(test_gnss_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
 target_compile_options(test_gnss_model PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_gnss_model PRIVATE mdmodels)
 add_test(NAME gnss_model COMMAND test_gnss_model)
+
+add_executable(test_airframe_effects tests/test_airframe_effects.c)
+target_include_directories(test_airframe_effects PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_airframe_effects PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_airframe_effects PRIVATE mdmodels)
+add_test(NAME airframe_effects COMMAND test_airframe_effects)
 
 add_executable(test_misc_models tests/test_misc_models.c)
 target_include_directories(test_misc_models PRIVATE ${CMAKE_SOURCE_DIR}/tests)
@@ -487,7 +494,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_airframe_effects test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -497,7 +504,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
+    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_airframe_effects test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
