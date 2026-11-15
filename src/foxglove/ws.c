@@ -1,180 +1,85 @@
 #include "foxglove/ws.h"
-#include "foxglove/sha1.h"
-#include "foxglove/base64.h"
 
 #include <errno.h>
-#include <stdbool.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-static const char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-enum { WS_MAX_FRAME_LEN = 8 * 1024 * 1024 };
-
-static int write_all(int fd, const void *buf, size_t len) {
-    const uint8_t *ptr = buf;
-    size_t remaining = len;
-    while (remaining > 0) {
-        ssize_t n = send(fd, ptr, remaining, MSG_NOSIGNAL);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        ptr += (size_t)n;
-        remaining -= (size_t)n;
+int ws_conn_open(ws_conn_t *conn, int fd, size_t tx_cap) {
+    memset(conn, 0, sizeof(*conn));
+    conn->fd = -1;
+    conn->parser = malloc(sizeof(*conn->parser));
+    conn->tx = malloc(tx_cap);
+    if (conn->parser == NULL || conn->tx == NULL) {
+        free(conn->parser);
+        free(conn->tx);
+        conn->parser = NULL;
+        conn->tx = NULL;
+        return -1;
     }
+    ws_parser_init(conn->parser);
+    conn->tx_cap = tx_cap;
+    conn->fd = fd;
     return 0;
 }
 
-static ssize_t recv_all(int fd, void *buf, size_t len) {
-    uint8_t *ptr = buf;
-    size_t got = 0;
-    while (got < len) {
-        ssize_t n = recv(fd, ptr + got, len - got, 0);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        if (n == 0) return -1;
-        got += (size_t)n;
+void ws_conn_close(ws_conn_t *conn) {
+    if (conn->fd >= 0) {
+        close(conn->fd);
     }
-    return (ssize_t)got;
+    free(conn->parser);
+    free(conn->tx);
+    memset(conn, 0, sizeof(*conn));
+    conn->fd = -1;
 }
 
-int ws_send_frame(int fd, uint8_t opcode, const void *data, size_t len) {
+bool ws_conn_enqueue(ws_conn_t *conn, uint8_t opcode, const void *head, size_t head_len,
+                     const void *body, size_t body_len) {
     uint8_t hdr[10];
-    size_t hdr_len = 0;
+    size_t payload = head_len + body_len;
+    size_t hdr_len = ws_frame_header(hdr, opcode, payload);
+    size_t total = hdr_len + payload;
+    if (conn->tx_head > 0 && conn->tx_cap - conn->tx_len - conn->tx_head < total) {
+        memmove(conn->tx, conn->tx + conn->tx_head, conn->tx_len);
+        conn->tx_head = 0;
+    }
+    if (conn->tx_cap - conn->tx_head - conn->tx_len < total) {
+        conn->dropped++;
+        return false;
+    }
+    uint8_t *dst = conn->tx + conn->tx_head + conn->tx_len;
+    memcpy(dst, hdr, hdr_len);
+    if (head_len > 0) {
+        memcpy(dst + hdr_len, head, head_len);
+    }
+    if (body_len > 0) {
+        memcpy(dst + hdr_len + head_len, body, body_len);
+    }
+    conn->tx_len += total;
+    return true;
+}
 
-    hdr[0] = (uint8_t)(0x80U | (opcode & 0x0FU));
-
-    if (len < 126) {
-        hdr[1] = (uint8_t)len;
-        hdr_len = 2;
-    } else if (len <= 0xFFFF) {
-        hdr[1] = 126;
-        hdr[2] = (uint8_t)(len >> 8);
-        hdr[3] = (uint8_t)(len);
-        hdr_len = 4;
-    } else {
-        hdr[1] = 127;
-        for (int i = 0; i < 8; i++) {
-            hdr[2+i] = (uint8_t)(len >> (56 - 8*i));
+int ws_conn_flush(ws_conn_t *conn) {
+    while (conn->tx_len > 0) {
+        ssize_t n = send(conn->fd, conn->tx + conn->tx_head, conn->tx_len,
+                         MSG_NOSIGNAL | MSG_DONTWAIT);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return 0;
+            }
+            return -1;
         }
-        hdr_len = 10;
+        conn->tx_head += (size_t)n;
+        conn->tx_len -= (size_t)n;
     }
-
-    if (write_all(fd, hdr, hdr_len) != 0) return -1;
-    if (data && len > 0) {
-        if (write_all(fd, data, len) != 0) return -1;
-    }
+    conn->tx_head = 0;
     return 0;
 }
 
-ssize_t ws_recv_frame(int fd, uint8_t *buf, size_t buf_sz, uint8_t *opcode) {
-    uint8_t hdr[2];
-    if (recv_all(fd, hdr, 2) != 2) return -1;
-
-    *opcode = hdr[0] & 0x0FU;
-    bool masked = (hdr[1] & 0x80U) != 0;
-    uint64_t plen = hdr[1] & 0x7FU;
-
-    if (plen == 126) {
-        uint8_t ext[2];
-        if (recv_all(fd, ext, 2) != 2) return -1;
-        plen = ((uint64_t)ext[0] << 8) | ext[1];
-    } else if (plen == 127) {
-        uint8_t ext[8];
-        if (recv_all(fd, ext, 8) != 8) return -1;
-        plen = 0;
-        for (int i = 0; i < 8; i++) {
-            plen = (plen << 8) | ext[i];
-        }
-    }
-
-    uint8_t mask[4] = {0};
-    if (masked) {
-        if (recv_all(fd, mask, 4) != 4) return -1;
-    }
-
-    if (plen > (uint64_t)WS_MAX_FRAME_LEN) {
-        return -1;
-    }
-
-    if (plen > buf_sz) {
-        size_t remaining = (size_t)plen;
-        while (remaining > 0) {
-            uint8_t tmp[4096];
-            size_t chunk = remaining < sizeof(tmp) ? remaining : sizeof(tmp);
-            ssize_t n = recv(fd, tmp, chunk, 0);
-            if (n <= 0) return -1;
-            remaining -= (size_t)n;
-        }
-        return -1;
-    }
-
-    size_t payload_len = (size_t)plen;
-    if (payload_len > 0) {
-        size_t got = 0;
-        while (got < payload_len) {
-            ssize_t n = recv(fd, buf + got, payload_len - got, 0);
-            if (n <= 0) return -1;
-            got += (size_t)n;
-        }
-    }
-
-    if (masked) {
-        for (size_t i = 0; i < payload_len; i++) {
-            buf[i] ^= mask[i & 3];
-        }
-    }
-
-    return (ssize_t)payload_len;
-}
-
-int ws_accept_handshake(int fd) {
-    char req[4096];
-    size_t total = 0;
-    while (total < sizeof(req) - 1U) {
-        ssize_t n = recv(fd, req + total, sizeof(req) - 1U - total, 0);
-        if (n <= 0) return -1;
-        total += (size_t)n;
-        req[total] = '\0';
-        if (strstr(req, "\r\n\r\n")) break;
-    }
-
-    const char *key_hdr = strstr(req, "Sec-WebSocket-Key: ");
-    if (!key_hdr) return -1;
-    key_hdr += 19;
-
-    char ws_key[64];
-    int ki = 0;
-    while (key_hdr[ki] && key_hdr[ki] != '\r' && ki < 60) {
-        ws_key[ki] = key_hdr[ki];
-        ki++;
-    }
-    ws_key[ki] = '\0';
-
-    char concat[128];
-    snprintf(concat, sizeof(concat), "%s%s", ws_key, WS_MAGIC);
-
-    uint8_t hash[20];
-    fg_sha1((const uint8_t *)concat, strlen(concat), hash);
-
-    char accept_b64[32];
-    fg_base64_encode(hash, 20, accept_b64);
-
-    char resp[512];
-    int rlen = snprintf(resp, sizeof(resp),
-        "HTTP/1.1 101 Switching Protocols\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        "Sec-WebSocket-Accept: %s\r\n"
-        "Sec-WebSocket-Protocol: foxglove.websocket.v1\r\n"
-        "\r\n",
-        accept_b64);
-
-    return (send(fd, resp, (size_t)rlen, 0) == rlen) ? 0 : -1;
+bool ws_conn_pending(const ws_conn_t *conn) {
+    return conn->tx_len > 0;
 }

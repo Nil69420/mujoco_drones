@@ -1,0 +1,168 @@
+<mujoco model="omav">
+  <compiler angle="radian"/>
+
+  <asset>
+    <mesh name="omav_core.obj" content_type="model/obj" file="meshes/omav_core.obj"/>
+    <mesh name="omav_tiltarm.obj" content_type="model/obj" file="meshes/omav_tiltarm.obj"/>
+    <mesh name="propeller_ccw.obj" content_type="model/obj" file="meshes/propeller_ccw.obj" scale="0.1143 0.1143 0.1143"/>
+    <mesh name="propeller_cw.obj" content_type="model/obj" file="meshes/propeller_cw.obj" scale="0.1143 0.1143 0.1143"/>
+  </asset>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 0">
+      <inertial pos="0 0 0" mass="2.3" diaginertia="0.0075 0.010939 0.01369"/>
+      <freejoint name="root"/>
+    <geom size="0.11 0.11 0.175" type="box"/>
+    <geom type="mesh" contype="0" conaffinity="0" mesh="omav_core.obj"/>
+    <site name="imu_site" pos="0 0 0"/>
+    <site name="lidar_site" pos="0 0 -0.02"/>
+    <site name="infrared_site" pos="0 0 -0.06" quat="0 1 0 0"/>
+    <body name="omav/tilt_unit_0" pos="0 -0.3 0" quat="-0.707107 0 0 0.707107">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.277" diaginertia="0.0013205 0.0010037 0.00034257"/>
+      <joint name="omav/tilt_unit_0_revolutejoint" pos="0 0 0" axis="1 0 0"/>
+      <geom size="0.0025 0.0025 0.0025" type="box"/>
+      <geom pos="0 -0.3 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="omav_tiltarm.obj"/>
+      <body name="rotor_0" pos="0 0 0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_0_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_ccw.obj"/>
+        <site name="rotor_0_joint_thrust_site" pos="0 0 0"/>
+      </body>
+      <body name="rotor_6" pos="0 0 -0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_6_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 -0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+      </body>
+    </body>
+    <body name="omav/tilt_unit_1" pos="0 0.3 0" quat="0.707107 0 0 0.707107">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.277" diaginertia="0.0013205 0.0010037 0.00034257"/>
+      <joint name="omav/tilt_unit_1_revolutejoint" pos="0 0 0" axis="1 0 0"/>
+      <geom size="0.0025 0.0025 0.0025" type="box"/>
+      <geom pos="0 0.3 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="omav_tiltarm.obj"/>
+      <body name="rotor_1" pos="0 0 0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_1_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+        <site name="rotor_1_joint_thrust_site" pos="0 0 0"/>
+      </body>
+      <body name="rotor_7" pos="0 0 -0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_7_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 -0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_ccw.obj"/>
+      </body>
+    </body>
+    <body name="omav/tilt_unit_2" pos="0.259808 0.15 0" quat="0.965926 0 0 0.258819">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.277" diaginertia="0.0013205 0.0010037 0.00034257"/>
+      <joint name="omav/tilt_unit_2_revolutejoint" pos="0 0 0" axis="1 0 0"/>
+      <geom size="0.0025 0.0025 0.0025" type="box"/>
+      <geom pos="0.259808 0.15 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="omav_tiltarm.obj"/>
+      <body name="rotor_2" pos="0 0 0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_2_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_ccw.obj"/>
+        <site name="rotor_2_joint_thrust_site" pos="0 0 0"/>
+      </body>
+      <body name="rotor_8" pos="0 0 -0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_8_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 -0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+      </body>
+    </body>
+    <body name="omav/tilt_unit_3" pos="-0.259808 -0.15 0" quat="-0.258819 0 0 0.965926">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.277" diaginertia="0.0013205 0.0010037 0.00034257"/>
+      <joint name="omav/tilt_unit_3_revolutejoint" pos="0 0 0" axis="1 0 0"/>
+      <geom size="0.0025 0.0025 0.0025" type="box"/>
+      <geom pos="-0.259808 -0.15 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="omav_tiltarm.obj"/>
+      <body name="rotor_3" pos="0 0 0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_3_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+        <site name="rotor_3_joint_thrust_site" pos="0 0 0"/>
+      </body>
+      <body name="rotor_9" pos="0 0 -0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_9_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 -0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_ccw.obj"/>
+      </body>
+    </body>
+    <body name="omav/tilt_unit_4" pos="0.259808 -0.15 0" quat="-0.965926 0 0 0.258819">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.277" diaginertia="0.0013205 0.0010037 0.00034257"/>
+      <joint name="omav/tilt_unit_4_revolutejoint" pos="0 0 0" axis="1 0 0"/>
+      <geom size="0.0025 0.0025 0.0025" type="box"/>
+      <geom pos="0.259808 -0.15 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="omav_tiltarm.obj"/>
+      <body name="rotor_4" pos="0 0 0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_4_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+        <site name="rotor_4_joint_thrust_site" pos="0 0 0"/>
+      </body>
+      <body name="rotor_10" pos="0 0 -0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_10_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 -0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_ccw.obj"/>
+      </body>
+    </body>
+    <body name="omav/tilt_unit_5" pos="-0.259808 0.15 0" quat="0.258819 0 0 0.965926">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.277" diaginertia="0.0013205 0.0010037 0.00034257"/>
+      <joint name="omav/tilt_unit_5_revolutejoint" pos="0 0 0" axis="1 0 0"/>
+      <geom size="0.0025 0.0025 0.0025" type="box"/>
+      <geom pos="-0.259808 0.15 0" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="omav_tiltarm.obj"/>
+      <body name="rotor_5" pos="0 0 0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_5_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_ccw.obj"/>
+        <site name="rotor_5_joint_thrust_site" pos="0 0 0"/>
+      </body>
+      <body name="rotor_11" pos="0 0 -0.06">
+        <inertial pos="0 0 0" quat="0 0.707107 0 0.707107" mass="0.0065" diaginertia="7.29326e-05 7.08147e-05 2.21542e-06"/>
+        <joint name="rotor_11_joint" pos="0 0 0" axis="0 0 1"/>
+        <geom size="0.1143 0.0025" type="cylinder"/>
+        <geom pos="0 0 -0.06" quat="1 0 0 0" type="mesh" contype="0" conaffinity="0" mesh="propeller_cw.obj"/>
+      </body>
+    </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="omav/tilt_unit_0_revolutejoint" joint="omav/tilt_unit_0_revolutejoint" biastype="affine" gainprm="0.05" biasprm="0 -0.05"/>
+    <general name="rotor_0_joint" site="rotor_0_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="rotor_6_joint_spin" joint="rotor_6_joint" ctrllimited="true" ctrlrange="-838 0" biastype="affine" gainprm="0.0005" biasprm="0.00553854 0.000221542 -0.0005"/>
+    <general name="omav/tilt_unit_1_revolutejoint" joint="omav/tilt_unit_1_revolutejoint" biastype="affine" gainprm="0.05" biasprm="0 -0.05"/>
+    <general name="rotor_1_joint" site="rotor_1_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="rotor_7_joint_spin" joint="rotor_7_joint" ctrllimited="true" ctrlrange="0 838" biastype="affine" gainprm="0.0005" biasprm="0.00553854 0.000221542 -0.0005"/>
+    <general name="omav/tilt_unit_2_revolutejoint" joint="omav/tilt_unit_2_revolutejoint" biastype="affine" gainprm="0.05" biasprm="0 -0.05"/>
+    <general name="rotor_2_joint" site="rotor_2_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="rotor_8_joint_spin" joint="rotor_8_joint" ctrllimited="true" ctrlrange="-838 0" biastype="affine" gainprm="0.0005" biasprm="0.00553854 0.000221542 -0.0005"/>
+    <general name="omav/tilt_unit_3_revolutejoint" joint="omav/tilt_unit_3_revolutejoint" biastype="affine" gainprm="0.05" biasprm="0 -0.05"/>
+    <general name="rotor_3_joint" site="rotor_3_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="rotor_9_joint_spin" joint="rotor_9_joint" ctrllimited="true" ctrlrange="0 838" biastype="affine" gainprm="0.0005" biasprm="0.00553854 0.000221542 -0.0005"/>
+    <general name="omav/tilt_unit_4_revolutejoint" joint="omav/tilt_unit_4_revolutejoint" biastype="affine" gainprm="0.05" biasprm="0 -0.05"/>
+    <general name="rotor_4_joint" site="rotor_4_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="rotor_10_joint_spin" joint="rotor_10_joint" ctrllimited="true" ctrlrange="-838 0" biastype="affine" gainprm="0.0005" biasprm="0.00553854 0.000221542 -0.0005"/>
+    <general name="omav/tilt_unit_5_revolutejoint" joint="omav/tilt_unit_5_revolutejoint" biastype="affine" gainprm="0.05" biasprm="0 -0.05"/>
+    <general name="rotor_5_joint" site="rotor_5_joint_thrust_site" ctrllimited="true" ctrlrange="0 20" gear="0 0 1 0 0 0"/>
+    <general name="rotor_11_joint_spin" joint="rotor_11_joint" ctrllimited="true" ctrlrange="0 838" biastype="affine" gainprm="0.0005" biasprm="0.00553854 0.000221542 -0.0005"/>
+  </actuator>
+
+  <sensor>
+    <accelerometer site="imu_site" name="imu_accel"/>
+    <gyro site="imu_site" name="imu_gyro"/>
+    <framequat objtype="site" objname="imu_site" name="orientation"/>
+    <framepos objtype="site" objname="imu_site" name="position"/>
+    <framexaxis objtype="site" objname="imu_site" name="heading"/>
+    <velocimeter site="imu_site" name="linvel"/>
+    <frameyaxis objtype="site" objname="imu_site" name="mag_y"/>
+    <framezaxis objtype="site" objname="imu_site" name="mag_z"/>
+  </sensor>
+</mujoco>

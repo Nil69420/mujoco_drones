@@ -1,4 +1,5 @@
-#include "sensors/sensors.h"
+#include "sensors/sensors_internal.h"
+#include "conditions/conditions.h"
 #include "sensors/noise.h"
 
 #include <math.h>
@@ -6,40 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static void build_topic(char *buf, size_t bufsz, const char *prefix,
-                        const char *suffix) {
-    snprintf(buf, bufsz, "/%s%s", prefix ? prefix : "drone", suffix);
-}
-
-static void build_name(char *buf, size_t bufsz, const char *prefix,
-                       const char *name) {
-    if (prefix) {
-        snprintf(buf, bufsz, "%s_%s", prefix, name);
-    } else {
-        snprintf(buf, bufsz, "%s", name);
-    }
-}
-
-static int resolve_sensor_adr(const mjModel *m, const char *prefix,
-                              const char *name) {
-    char full[64];
-    build_name(full, sizeof(full), prefix, name);
-    int id = mj_name2id(m, mjOBJ_SENSOR, full);
-    if (id < 0) {
-        fprintf(stderr, "[sensors] WARNING: sensor '%s' not found in model\n",
-                full);
-        return -1;
-    }
-    return m->sensor_adr[id];
-}
-
-static int resolve_site_id(const mjModel *m, const char *prefix,
-                           const char *name) {
-    char full[64];
-    build_name(full, sizeof(full), prefix, name);
-    return mj_name2id(m, mjOBJ_SITE, full);
-}
 
 sensor_config_t sensor_default_config(void) {
     sensor_config_t cfg = {0};
@@ -78,397 +45,67 @@ sensor_config_t sensor_default_config(void) {
     cfg.lidar_range_noise      = 0.01;
     cfg.ir_range_noise         = 0.005;
 
+    cfg.mag_field_enu_ut[0]    = 0.9;
+    cfg.mag_field_enu_ut[1]    = 21.4;
+    cfg.mag_field_enu_ut[2]    = -42.3;
+    cfg.camera_exposure_s      = 0.004;
+    cfg.mag_rate               = 0.0;
+    cfg.ground_reflectivity    = 0.3;
+    cfg.sky_visibility         = 1.0;
+    cfg.multipath_scale        = 1.0;
+    cfg.ambient_temp_c         = 15.0;
+    cfg.sea_level_pressure_pa  = 101325.0;
+
     return cfg;
 }
 
-static int rate_to_interval(double rate_hz, double timestep) {
-    if (rate_hz <= 0.0) return 0;
-    int n = (int)(1.0 / (rate_hz * timestep));
-    return n < 1 ? 1 : n;
-}
-
-int sensor_init(sensor_mgr_t *mgr, const mjModel *model,
-                transport_t *tp, const sensor_config_t *config,
-                const char *topic_prefix) {
-    memset(mgr, 0, sizeof(*mgr));
-    mgr->config = *config;
-
-    char topic_imu[64], topic_gnss[64], topic_baro[64], topic_lidar[64];
-    char topic_infrared[64], topic_camera_meta[64], topic_camera_rgb[64];
-    char topic_command[64];
-    build_topic(topic_imu,        sizeof(topic_imu),        topic_prefix, "/imu");
-    build_topic(topic_gnss,       sizeof(topic_gnss),       topic_prefix, "/gnss");
-    build_topic(topic_baro,       sizeof(topic_baro),       topic_prefix, "/baro");
-    build_topic(topic_lidar,      sizeof(topic_lidar),      topic_prefix, "/lidar");
-    build_topic(topic_infrared,   sizeof(topic_infrared),   topic_prefix, "/infrared");
-    build_topic(topic_camera_meta,sizeof(topic_camera_meta),topic_prefix, "/camera/meta");
-    build_topic(topic_camera_rgb, sizeof(topic_camera_rgb), topic_prefix, "/camera/rgb");
-    build_topic(topic_command,    sizeof(topic_command),    topic_prefix, "/command");
-
-    double dt = model->opt.timestep;
-
-    mgr->adr_accel   = resolve_sensor_adr(model, topic_prefix, "imu_accel");
-    mgr->adr_gyro    = resolve_sensor_adr(model, topic_prefix, "imu_gyro");
-    mgr->adr_quat    = resolve_sensor_adr(model, topic_prefix, "orientation");
-    mgr->adr_pos     = resolve_sensor_adr(model, topic_prefix, "position");
-    mgr->adr_heading = resolve_sensor_adr(model, topic_prefix, "heading");
-    mgr->adr_linvel  = resolve_sensor_adr(model, topic_prefix, "linvel");
-    mgr->adr_mag_y   = resolve_sensor_adr(model, topic_prefix, "mag_y");
-    mgr->adr_mag_z   = resolve_sensor_adr(model, topic_prefix, "mag_z");
-
-    mgr->site_imu      = resolve_site_id(model, topic_prefix, "imu_site");
-    mgr->site_lidar    = resolve_site_id(model, topic_prefix, "lidar_site");
-    mgr->site_infrared = resolve_site_id(model, topic_prefix, "infrared_site");
-    {
-        char full[64];
-        if (topic_prefix) {
-            build_name(full, sizeof(full), topic_prefix, "base_link");
-        } else {
-            snprintf(full, sizeof(full), "%s", "base_link");
+static int tick_due(double *acc, double rate_hz, double timestep) {
+    if (rate_hz <= 0.0) {
+        return 0;
+    }
+    *acc += rate_hz * timestep;
+    if (*acc >= 1.0 - 1e-9) {
+        *acc -= 1.0;
+        if (*acc > 1.0) {
+            *acc = 0.0;
         }
-        mgr->body_base = mj_name2id(model, mjOBJ_BODY, full);
-        if (topic_prefix) {
-            build_name(full, sizeof(full), topic_prefix, "drone_camera");
-        } else {
-            snprintf(full, sizeof(full), "%s", "drone_camera");
-        }
-        mgr->camera_id = mj_name2id(model, mjOBJ_CAMERA, full);
+        return 1;
     }
-
-    if (mgr->adr_accel < 0 || mgr->adr_gyro < 0 || mgr->adr_quat < 0 ||
-        mgr->adr_pos < 0 || mgr->body_base < 0) {
-        fprintf(stderr, "[sensors] ERROR: required sensors/bodies missing "
-                        "from model\n");
-        return -1;
-    }
-
-    if (config->enable.lidar && mgr->site_lidar < 0) {
-        fprintf(stderr, "[sensors] WARNING: lidar_site not found, disabling\n");
-        mgr->config.enable.lidar = false;
-    }
-    if (config->enable.infrared && mgr->site_infrared < 0) {
-        fprintf(stderr, "[sensors] WARNING: infrared_site not found, disabling\n");
-        mgr->config.enable.infrared = false;
-    }
-    if (config->enable.camera && mgr->camera_id < 0) {
-        fprintf(stderr, "[sensors] WARNING: drone_camera not found, disabling\n");
-        mgr->config.enable.camera = false;
-    }
-
-    mgr->inv_imu      = rate_to_interval(config->imu_rate,      dt);
-    mgr->inv_gnss     = rate_to_interval(config->gnss_rate,     dt);
-    mgr->inv_baro     = rate_to_interval(config->baro_rate,     dt);
-    mgr->inv_lidar    = rate_to_interval(config->lidar_rate,    dt);
-    mgr->inv_camera   = rate_to_interval(config->camera_rate,   dt);
-    mgr->inv_infrared = rate_to_interval(config->infrared_rate, dt);
-
-    mgr->dec_imu = mgr->dec_gnss = mgr->dec_baro = 1;
-    mgr->dec_lidar = mgr->dec_camera = mgr->dec_infrared = 1;
-
-    if (mgr->config.enable.imu) {
-        if (transport_advertise(tp, topic_imu,
-                                sizeof(sensor_imu_t), &mgr->pub_imu) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling IMU\n", topic_imu);
-            mgr->config.enable.imu = false;
-        }
-    }
-
-    if (mgr->config.enable.gnss) {
-        if (transport_advertise(tp, topic_gnss,
-                                sizeof(sensor_gnss_t), &mgr->pub_gnss) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling GNSS\n", topic_gnss);
-            mgr->config.enable.gnss = false;
-        }
-    }
-
-    if (mgr->config.enable.baro) {
-        if (transport_advertise(tp, topic_baro,
-                                sizeof(sensor_baro_t), &mgr->pub_baro) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling barometer\n", topic_baro);
-            mgr->config.enable.baro = false;
-        }
-    }
-
-    if (mgr->config.enable.lidar) {
-        if (transport_advertise(tp, topic_lidar,
-                                sizeof(sensor_lidar_t), &mgr->pub_lidar) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling LiDAR\n", topic_lidar);
-            mgr->config.enable.lidar = false;
-        }
-    }
-
-    if (mgr->config.enable.infrared) {
-        if (transport_advertise(tp, topic_infrared,
-                                sizeof(sensor_infrared_t),
-                                &mgr->pub_infrared) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling infrared\n", topic_infrared);
-            mgr->config.enable.infrared = false;
-        }
-    }
-
-    if (mgr->config.enable.camera) {
-        size_t rgb_sz   = (size_t)config->camera_width *
-                          config->camera_height * 3;
-        size_t rgb_total = sizeof(sensor_camera_rgb_hdr_t) + rgb_sz;
-        size_t rgb_max   = sizeof(sensor_camera_rgb_hdr_t) +
-                           (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3;
-        size_t depth_sz = (size_t)config->camera_width *
-                          config->camera_height * sizeof(float);
-
-        if (transport_advertise(tp, topic_camera_meta,
-                                sizeof(sensor_camera_meta_t),
-                                &mgr->pub_camera_meta) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling camera\n", topic_camera_meta);
-            mgr->config.enable.camera = false;
-        } else if (transport_advertise(tp, topic_camera_rgb, rgb_max,
-                                       &mgr->pub_camera_rgb) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to advertise %s, "
-                            "disabling camera\n", topic_camera_rgb);
-            mgr->config.enable.camera = false;
-        }
-
-        if (mgr->config.enable.camera) {
-            mgr->rgb_buf   = malloc(rgb_total);
-            mgr->depth_buf = malloc(depth_sz);
-            if (!mgr->rgb_buf || !mgr->depth_buf) {
-                fprintf(stderr, "[sensors] ERROR: failed to allocate camera "
-                                "buffers\n");
-                mgr->config.enable.camera = false;
-            }
-        }
-    }
-
-    if (mgr->config.enable.command) {
-        if (transport_subscribe(tp, topic_command,
-                                sizeof(command_setpoint_t),
-                                &mgr->sub_command) != 0) {
-            fprintf(stderr, "[sensors] ERROR: failed to subscribe to %s, "
-                            "command uplink disabled\n", topic_command);
-            mgr->config.enable.command = false;
-        }
-    }
-
-    noise_seed(&mgr->rng, 42);
-
-    printf("[sensors] initialized: IMU=%d GNSS=%d Baro=%d LiDAR=%d "
-           "Camera=%d IR=%d Command=%d\n",
-           mgr->config.enable.imu,    mgr->config.enable.gnss,
-           mgr->config.enable.baro,   mgr->config.enable.lidar,
-           mgr->config.enable.camera, mgr->config.enable.infrared,
-           mgr->config.enable.command);
     return 0;
-}
-
-static void read_imu(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
-    sensor_imu_t msg = {0};
-    msg.header.timestamp_ns = t_ns;
-    msg.header.sequence     = mgr->seq_imu++;
-    msg.header.sensor_id    = SENSOR_ID_IMU;
-
-    double dt = 0.001;
-
-    for (int i = 0; i < 3; i++) {
-        double bias_g = noise_random_walk(&mgr->rng, &mgr->gyro_bias[i],
-                                          mgr->config.imu_gyro_bias_diffusion,
-                                          dt);
-        msg.accel[i] = data->sensordata[mgr->adr_accel + i]
-                     + noise_gaussian(&mgr->rng, mgr->config.imu_accel_noise);
-        msg.gyro[i]  = data->sensordata[mgr->adr_gyro + i]
-                     + noise_gaussian(&mgr->rng, mgr->config.imu_gyro_noise) + bias_g;
-    }
-
-    if (mgr->adr_heading >= 0) {
-        msg.mag[0] = data->sensordata[mgr->adr_heading];
-        msg.mag[1] = data->sensordata[mgr->adr_heading + 1];
-        msg.mag[2] = data->sensordata[mgr->adr_heading + 2];
-    }
-
-    if (mgr->adr_quat >= 0) {
-        memcpy(msg.orientation, &data->sensordata[mgr->adr_quat],
-               4 * sizeof(double));
-    }
-
-    mgr->imu_latest = msg;
-    transport_publish(&mgr->pub_imu, &msg, sizeof(msg));
-}
-
-static void read_gnss(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
-    sensor_gnss_t msg = {0};
-    msg.header.timestamp_ns = t_ns;
-    msg.header.sequence     = mgr->seq_gnss++;
-    msg.header.sensor_id    = SENSOR_ID_GNSS;
-
-    double pos[3];
-    memcpy(pos, &data->sensordata[mgr->adr_pos], 3 * sizeof(double));
-
-    static const double R_EARTH = 6371000.0;
-    double lat0_rad = mgr->config.gnss_origin_lat * M_PI / 180.0;
-
-    msg.latitude  = mgr->config.gnss_origin_lat +
-                    (pos[1] / R_EARTH) * (180.0 / M_PI);
-    msg.longitude = mgr->config.gnss_origin_lon +
-                    (pos[0] / (R_EARTH * cos(lat0_rad))) * (180.0 / M_PI);
-    msg.altitude  = mgr->config.gnss_origin_alt + pos[2];
-
-    if (mgr->adr_linvel >= 0) {
-        memcpy(msg.velocity, &data->sensordata[mgr->adr_linvel],
-               3 * sizeof(double));
-    }
-
-    msg.fix_type       = 2;
-    msg.num_satellites = 12;
-    msg.hdop           = 1.2;
-
-    double noise_m = mgr->config.gnss_pos_noise;
-    msg.latitude  += noise_gaussian(&mgr->rng, noise_m / R_EARTH) * (180.0 / M_PI);
-    msg.longitude += noise_gaussian(&mgr->rng, noise_m / R_EARTH) * (180.0 / M_PI);
-    msg.altitude  += noise_gaussian(&mgr->rng, noise_m);
-
-    mgr->gnss_latest = msg;
-    transport_publish(&mgr->pub_gnss, &msg, sizeof(msg));
-}
-
-static void read_baro(sensor_mgr_t *mgr, const mjData *data, uint64_t t_ns) {
-    sensor_baro_t msg = {0};
-    msg.header.timestamp_ns = t_ns;
-    msg.header.sequence     = mgr->seq_baro++;
-    msg.header.sensor_id    = SENSOR_ID_BARO;
-
-    double alt = data->sensordata[mgr->adr_pos + 2]
-               + mgr->config.gnss_origin_alt
-               + noise_gaussian(&mgr->rng, mgr->config.baro_alt_noise);
-
-    msg.altitude_m    = alt;
-    msg.temperature_c = 15.0;
-    msg.pressure_pa = 101325.0 * pow(1.0 - 0.0065 * alt / 288.15, 5.2561);
-
-    mgr->baro_latest = msg;
-    transport_publish(&mgr->pub_baro, &msg, sizeof(msg));
-}
-
-static void read_lidar(sensor_mgr_t *mgr, const mjModel *model,
-                       mjData *data, uint64_t t_ns) {
-    sensor_lidar_t msg = {0};
-    msg.header.timestamp_ns = t_ns;
-    msg.header.sequence     = mgr->seq_lidar++;
-    msg.header.sensor_id    = SENSOR_ID_LIDAR;
-
-    int nrays = mgr->config.lidar_num_rays;
-    if (nrays > LIDAR_MAX_RAYS) nrays = LIDAR_MAX_RAYS;
-
-    msg.num_rays  = (uint16_t)nrays;
-    msg.angle_min = 0.0F;
-    msg.angle_max = 2.0F * (float)M_PI;
-    msg.range_min = 0.1F;
-    msg.range_max = mgr->config.lidar_range_max;
-
-    const double *site_pos = &data->site_xpos[(ptrdiff_t)mgr->site_lidar * 3];
-    const double *site_mat = &data->site_xmat[(ptrdiff_t)mgr->site_lidar * 9];
-
-    float angle_step = (msg.angle_max - msg.angle_min) / (float)nrays;
-
-    for (int i = 0; i < nrays; i++) {
-        float angle = msg.angle_min + (float)i * angle_step;
-        double dir_local[3] = { (double)cosf(angle), (double)sinf(angle), 0.0 };
-
-        double dir_world[3];
-        for (int row = 0; row < 3; row++) {
-            dir_world[row] = site_mat[3*row + 0] * dir_local[0]
-                           + site_mat[3*row + 1] * dir_local[1]
-                           + site_mat[3*row + 2] * dir_local[2];
-        }
-
-        int geomid = -1;
-        mjtNum dist = mj_ray(model, data, site_pos, dir_world,
-                             NULL, 1, mgr->body_base, &geomid, NULL);
-
-        if (dist >= 0 && dist <= (double)msg.range_max) {
-            msg.ranges[i] = (float)dist
-                          + (float)noise_gaussian(&mgr->rng, mgr->config.lidar_range_noise);
-        } else {
-            msg.ranges[i] = -1.0F;
-        }
-    }
-
-    size_t payload = offsetof(sensor_lidar_t, ranges)
-                   + (size_t)nrays * sizeof(float);
-    transport_publish(&mgr->pub_lidar, &msg, payload);
-}
-
-static void read_infrared(sensor_mgr_t *mgr, const mjModel *model,
-                          mjData *data, uint64_t t_ns) {
-    sensor_infrared_t msg = {0};
-    msg.header.timestamp_ns = t_ns;
-    msg.header.sequence     = mgr->seq_infrared++;
-    msg.header.sensor_id    = SENSOR_ID_INFRARED;
-
-    msg.range_min  = 0.02F;
-    msg.range_max  = 5.0F;
-    msg.beam_angle = 0.05F;
-
-    const double *site_pos = &data->site_xpos[(ptrdiff_t)mgr->site_infrared * 3];
-    const double *site_mat = &data->site_xmat[(ptrdiff_t)mgr->site_infrared * 9];
-
-    double dir_world[3] = {
-        site_mat[3*0 + 2],
-        site_mat[3*1 + 2],
-        site_mat[3*2 + 2],
-    };
-
-    int geomid = -1;
-    mjtNum dist = mj_ray(model, data, site_pos, dir_world,
-                         NULL, 1, mgr->body_base, &geomid, NULL);
-
-    if (dist >= 0 && dist <= (double)msg.range_max) {
-        msg.range_m = (float)dist
-                    + (float)noise_gaussian(&mgr->rng, mgr->config.ir_range_noise);
-    } else {
-        msg.range_m = -1.0F;
-    }
-
-    transport_publish(&mgr->pub_infrared, &msg, sizeof(msg));
 }
 
 void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
                    setpoint_t *target) {
     uint64_t t_ns = (uint64_t)(data->time * 1e9);
+    sensor_update_conditions(mgr, data);
 
-    if (mgr->config.enable.imu && mgr->inv_imu > 0 && --mgr->dec_imu <= 0) {
-        mgr->dec_imu = mgr->inv_imu;
-        read_imu(mgr, data, t_ns);
+    if (mgr->config.enable.imu && tick_due(&mgr->acc_imu, mgr->config.imu_rate, mgr->sim_dt)) {
+        sensor_read_imu(mgr, data, t_ns);
     }
 
-    if (mgr->config.enable.gnss && mgr->inv_gnss > 0 && --mgr->dec_gnss <= 0) {
-        mgr->dec_gnss = mgr->inv_gnss;
-        read_gnss(mgr, data, t_ns);
+    if (mgr->config.enable.gnss && mgr->use_gnss_model) {
+        sensor_step_gnss_model(mgr, data, t_ns);
+    } else if (mgr->config.enable.gnss &&
+               tick_due(&mgr->acc_gnss, mgr->config.gnss_rate, mgr->sim_dt)) {
+        sensor_read_gnss(mgr, data, t_ns);
     }
 
-    if (mgr->config.enable.baro && mgr->inv_baro > 0 && --mgr->dec_baro <= 0) {
-        mgr->dec_baro = mgr->inv_baro;
-        read_baro(mgr, data, t_ns);
+    if (mgr->config.enable.baro && tick_due(&mgr->acc_baro, mgr->config.baro_rate, mgr->sim_dt)) {
+        sensor_read_baro(mgr, data, t_ns);
     }
 
-    if (mgr->config.enable.lidar && mgr->inv_lidar > 0 &&
-        --mgr->dec_lidar <= 0) {
-        mgr->dec_lidar = mgr->inv_lidar;
-        read_lidar(mgr, model, data, t_ns);
+    if (mgr->config.enable.lidar &&
+        tick_due(&mgr->acc_lidar, mgr->config.lidar_rate, mgr->sim_dt)) {
+        sensor_read_lidar(mgr, model, data, t_ns);
     }
 
-    if (mgr->config.enable.infrared && mgr->inv_infrared > 0 &&
-        --mgr->dec_infrared <= 0) {
-        mgr->dec_infrared = mgr->inv_infrared;
-        read_infrared(mgr, model, data, t_ns);
+    if (mgr->config.enable.infrared &&
+        tick_due(&mgr->acc_infrared, mgr->config.infrared_rate, mgr->sim_dt)) {
+        sensor_read_infrared(mgr, model, data, t_ns);
     }
 
-    if (mgr->config.enable.camera && mgr->inv_camera > 0 &&
-        --mgr->dec_camera <= 0) {
-        mgr->dec_camera = mgr->inv_camera;
+    if (mgr->config.enable.camera &&
+        tick_due(&mgr->acc_camera, mgr->config.camera_rate, mgr->sim_dt)) {
         mgr->cam_due = true;
     }
 
@@ -484,87 +121,6 @@ void sensor_update(sensor_mgr_t *mgr, const mjModel *model, mjData *data,
             target->yaw = cmd.yaw;
         }
     }
-}
-
-void sensor_render_camera(sensor_mgr_t *mgr, const mjModel *model,
-                          mjData *data) {
-    if (!mgr->config.enable.camera || !mgr->cam_due) {
-        return;
-    }
-    mgr->cam_due = false;
-
-    int w = mgr->config.camera_width;
-    int h = mgr->config.camera_height;
-
-    if (!mgr->cam_initialized) {
-        mjv_defaultScene(&mgr->cam_scene);
-        mjv_makeScene(model, &mgr->cam_scene, 1000);
-        mjr_defaultContext(&mgr->cam_context);
-        mgr->cam_context.offWidth  = w;
-        mgr->cam_context.offHeight = h;
-        mjr_makeContext(model, &mgr->cam_context, mjFONTSCALE_100);
-
-        mjv_defaultCamera(&mgr->cam_view);
-        mgr->cam_view.type       = mjCAMERA_FIXED;
-        mgr->cam_view.fixedcamid = mgr->camera_id;
-
-        mjv_defaultOption(&mgr->cam_opt);
-
-        mgr->cam_initialized = true;
-    }
-
-    mjrRect vp = { 0, 0, w, h };
-    mjv_updateScene(model, data, &mgr->cam_opt, NULL,
-                    &mgr->cam_view, mjCAT_ALL, &mgr->cam_scene);
-    mjr_setBuffer(mjFB_OFFSCREEN, &mgr->cam_context);
-    mjr_render(vp, &mgr->cam_scene, &mgr->cam_context);
-
-    uint8_t *pixels = mgr->rgb_buf + sizeof(sensor_camera_rgb_hdr_t);
-    mjr_readPixels(pixels, mgr->depth_buf, vp, &mgr->cam_context);
-
-    size_t row_bytes = (size_t)(unsigned)w * 3U;
-    uint8_t *temp_row = malloc(row_bytes);
-    if (temp_row) {
-        size_t half_rows = (size_t)(unsigned)h / 2U;
-        size_t h_sz = (size_t)(unsigned)h;
-        for (size_t row = 0; row < half_rows; row++) {
-            uint8_t *top = pixels + row * row_bytes;
-            uint8_t *bot = pixels + (h_sz - 1U - row) * row_bytes;
-            memcpy(temp_row, top, row_bytes);
-            memcpy(top, bot, row_bytes);
-            memcpy(bot, temp_row, row_bytes);
-        }
-        free(temp_row);
-    }
-
-    uint64_t t_ns = (uint64_t)(data->time * 1e9);
-    size_t rgb_sz   = (size_t)(unsigned)w * (unsigned)h * 3;
-    size_t depth_sz = (size_t)(unsigned)w * (unsigned)h * sizeof(float);
-
-    /* Fill camera RGB header so downstream consumers (bridge) have metadata */
-    sensor_camera_rgb_hdr_t *rgb_hdr = (sensor_camera_rgb_hdr_t *)mgr->rgb_buf;
-    rgb_hdr->header.timestamp_ns = t_ns;
-    rgb_hdr->header.sequence     = mgr->seq_camera;
-    rgb_hdr->header.sensor_id    = SENSOR_ID_CAMERA;
-    rgb_hdr->width    = (uint16_t)w;
-    rgb_hdr->height   = (uint16_t)h;
-    rgb_hdr->channels = 3;
-
-    sensor_camera_meta_t meta = {0};
-    meta.header.timestamp_ns = t_ns;
-    meta.header.sequence     = mgr->seq_camera++;
-    meta.header.sensor_id    = SENSOR_ID_CAMERA;
-    meta.width       = (uint16_t)w;
-    meta.height      = (uint16_t)h;
-    meta.channels    = 3;
-    meta.fov_y       = mgr->config.camera_fov;
-    meta.rgb_size    = (uint32_t)rgb_sz;
-    meta.depth_size  = (uint32_t)depth_sz;
-    meta.depth_scale = 1.0F;
-
-    transport_publish(&mgr->pub_camera_meta, &meta, sizeof(meta));
-    transport_publish(&mgr->pub_camera_rgb,  mgr->rgb_buf,
-                      sizeof(sensor_camera_rgb_hdr_t) + rgb_sz);
 }
 
 void sensor_cleanup(sensor_mgr_t *mgr) {
@@ -583,6 +139,9 @@ void sensor_cleanup(sensor_mgr_t *mgr) {
         mjr_freeContext(&mgr->cam_context);
         mgr->cam_initialized = false;
     }
+    camera_egl_close(&mgr->egl);
+    camera_model_free(&mgr->cam_model);
+    frame_out_close(&mgr->cam_out);
     free(mgr->rgb_buf);
     free(mgr->depth_buf);
     mgr->rgb_buf   = NULL;

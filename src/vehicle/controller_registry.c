@@ -5,11 +5,13 @@
 
 extern const controller_ops_t pd_multicopter_ops;
 extern const controller_ops_t fixedwing_basic_ops;
+extern const controller_ops_t omav_basic_ops;
 
 static const controller_ops_t *const *controller_table(int *count) {
     static const controller_ops_t *const table[] = {
         &pd_multicopter_ops,
         &fixedwing_basic_ops,
+        &omav_basic_ops,
     };
     *count = (int)(sizeof(table) / sizeof(table[0]));
     return table;

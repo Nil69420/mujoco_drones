@@ -1,7 +1,9 @@
+#include "cli.h"
 #include "types.h"
 #include "controller.h"
 #include "viewer.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,33 +16,6 @@
 #include "foxglove/foxglove.h"
 #endif
 #endif
-
-static void print_usage(const char *prog) {
-    printf("Usage: %s [OPTIONS]\n\n", prog);
-    printf("Hummingbird quadrotor simulation (MuJoCo)\n\n");
-    printf("Options:\n");
-    printf("  --headless       Run without visualization\n");
-    printf("  --duration SEC   Sim duration in seconds (headless, default 10)\n");
-    printf("  --altitude M     Initial target altitude (default 1.0)\n");
-    printf("  --model PATH     Path to MJCF model file\n");
-#ifdef ENABLE_IPC
-    printf("  --no-ipc         Disable IPC transport\n");
-    printf("  --lidar-rays N   Number of LiDAR rays (default 36)\n");
-    printf("  --cam-width W    Camera width in pixels (default 640)\n");
-    printf("  --cam-height H   Camera height in pixels (default 360)\n");
-    printf("  --cam-fps F      Camera FPS (default 8.0)\n");
-    printf("  --scenario FILE  Run a composable multi-vehicle scenario\n");
-#endif
-    printf("  -h, --help       Show this help\n\n");
-    printf("Interactive controls:\n");
-    printf("  W/A/S/D          Move target XY\n");
-    printf("  Up/Down          Raise/lower altitude\n");
-    printf("  Left/Right       Yaw target\n");
-    printf("  R                Reset target\n");
-    printf("  Backspace        Reset simulation\n");
-    printf("  Q / Escape       Quit\n");
-    printf("  Mouse            Camera control\n");
-}
 
 static const char *find_model(void) {
     static const char *candidates[] = {
@@ -56,62 +31,6 @@ static const char *find_model(void) {
         if (f) { fclose(f); return candidates[i]; }
     }
     return NULL;
-}
-
-typedef struct {
-    bool        headless;
-    bool        duration_set;
-    double      duration;
-    double      altitude;
-    const char *model_path;
-#ifdef ENABLE_IPC
-    bool        no_ipc;
-    int         lidar_rays;
-    int         cam_w;
-    int         cam_h;
-    double      cam_fps;
-    const char *scenario_path;
-#endif
-} cli_args_t;
-
-static int parse_args(int argc, char **argv, cli_args_t *args) {
-    args->headless   = false;
-    args->duration_set = false;
-    args->duration   = 10.0;
-    args->altitude   = 1.0;
-    args->model_path = NULL;
-#ifdef ENABLE_IPC
-    args->no_ipc     = false;
-    args->lidar_rays = 36;
-    args->cam_w      = 640;
-    args->cam_h      = 360;
-    args->cam_fps    = 8.0;
-    args->scenario_path = NULL;
-#endif
-
-    for (int i = 1; i < argc; i++) {
-        if      (!strcmp(argv[i], "--headless"))                  { args->headless = true; }
-        else if (!strcmp(argv[i], "--duration") && i+1 < argc)   { args->duration   = strtod(argv[++i], NULL); args->duration_set = true; }
-        else if (!strcmp(argv[i], "--altitude") && i+1 < argc)   { args->altitude   = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--model")    && i+1 < argc)   { args->model_path = argv[++i]; }
-#ifdef ENABLE_IPC
-        else if (!strcmp(argv[i], "--no-ipc"))                    { args->no_ipc = true; }
-        else if (!strcmp(argv[i], "--lidar-rays") && i+1 < argc) { args->lidar_rays = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-width")  && i+1 < argc) { args->cam_w = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-height") && i+1 < argc) { args->cam_h = (int)strtol(argv[++i], NULL, 10); }
-        else if (!strcmp(argv[i], "--cam-fps")    && i+1 < argc) { args->cam_fps = strtod(argv[++i], NULL); }
-        else if (!strcmp(argv[i], "--scenario")   && i+1 < argc) { args->scenario_path = argv[++i]; }
-#endif
-        else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
-            print_usage(argv[0]);
-            return 1;
-        } else {
-            fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            print_usage(argv[0]);
-            return -1;
-        }
-    }
-    return 0;
 }
 
 #ifdef ENABLE_FOXGLOVE
@@ -151,6 +70,7 @@ static int run_headless(sim_t *sim, double duration) {
 #ifdef ENABLE_IPC
         if (sim->ipc_enabled) {
             sensor_update(&sim->sensors, sim->model, sim->data, &sim->target);
+            sensor_render_camera(&sim->sensors, sim->model, sim->data);
         }
 #endif
         if (++step % print_every == 0) {
@@ -172,13 +92,78 @@ static int run_headless(sim_t *sim, double duration) {
     return 0;
 }
 
+#ifdef ENABLE_IPC
+static void build_sensor_config(const cli_args_t *args, sensor_config_t *scfg,
+                                airframe_effects_params_t *effects) {
+    *scfg = sensor_default_config();
+    scfg->lidar_num_rays = (uint16_t)args->lidar_rays;
+
+#ifdef ENABLE_FOXGLOVE
+    apply_camera_cap(args->cam_w, args->cam_h, scfg);
+#else
+    scfg->camera_width  = (uint16_t)args->cam_w;
+    scfg->camera_height = (uint16_t)args->cam_h;
+#endif
+    scfg->camera_rate    = args->cam_fps;
+    scfg->imu_profile    = args->imu_name;
+    scfg->gnss_profile   = args->gnss_name;
+    scfg->gnss_cold_start = args->gnss_cold;
+    scfg->rtk_corrections = args->gnss_rtk ? 1 : 0;
+    scfg->baro_profile   = args->baro_name;
+    scfg->mag_profile    = args->mag_name;
+    scfg->range_profile  = args->range_name;
+    scfg->infrared_rate  = args->ir_rate;
+    scfg->mag_rate       = args->mag_rate;
+    scfg->weather        = args->weather;
+    scfg->vibration_scale = args->vibration;
+    scfg->imu_rate       = args->imu_rate;
+    scfg->gnss_rate      = args->gnss_rate;
+    scfg->baro_rate      = args->baro_rate;
+        if (!isnan(args->fx_accel_deficit)) {
+        effects->accel_thrust_deficit_mps2 = args->fx_accel_deficit;
+        effects->baro_lag_s = args->fx_baro_lag;
+        effects->camera_drop_probability = args->fx_cam_drop;
+        effects->camera_time_shift_s = args->fx_cam_shift;
+        effects->provenance = PROVENANCE_ASSUMED;
+        scfg->effects = effects;
+    }
+
+    scfg->camera_profile = args->cam_profile;
+    scfg->camera_mono    = args->cam_mono;
+    scfg->camera_headless = args->headless;
+#ifdef ENABLE_FOXGLOVE
+    scfg->camera_legacy_topic = true;
+#endif
+    if (args->headless && !args->cam_mono) {
+        scfg->enable.camera = false;
+    }
+#ifndef ENABLE_FOXGLOVE
+    if (!args->headless) {
+        fprintf(stderr, "[main] WARNING: camera stream disabled "
+                        "(no Foxglove bridge to consume it)\n");
+        scfg->enable.camera = false;
+    }
+#endif
+}
+
+static bool sensors_requested(const cli_args_t *args) {
+    return args->imu_name != NULL || args->gnss_name != NULL || args->baro_name != NULL ||
+           args->mag_name != NULL || args->range_name != NULL || args->weather != NULL ||
+           args->vibration > 0.0 || args->cam_mono || !isnan(args->fx_accel_deficit);
+}
+#endif
+
 int main(int argc, char **argv) {
     cli_args_t args = {0};
-    int parse_rc = parse_args(argc, argv, &args);
+    int parse_rc = cli_parse(argc, argv, &args);
     if (parse_rc > 0) return 0;
     if (parse_rc < 0) return 1;
 
 #ifdef ENABLE_IPC
+    if (args.list_sensors) {
+        cli_list_sensor_profiles();
+        return 0;
+    }
     if (args.scenario_path) {
         return scenario_main_run(args.scenario_path, args.headless,
                                  args.duration_set ? args.duration : 0.0);
@@ -225,31 +210,19 @@ int main(int argc, char **argv) {
             fprintf(stderr, "ERROR: failed to initialize IPC transport\n");
             sim.ipc_enabled = false;
         } else {
-            sensor_config_t scfg = sensor_default_config();
-            scfg.lidar_num_rays = (uint16_t)args.lidar_rays;
-
-#ifdef ENABLE_FOXGLOVE
-            apply_camera_cap(args.cam_w, args.cam_h, &scfg);
-#else
-            scfg.camera_width  = (uint16_t)args.cam_w;
-            scfg.camera_height = (uint16_t)args.cam_h;
-#endif
-            scfg.camera_rate    = args.cam_fps;
-
-            if (args.headless) {
-                scfg.enable.camera = false;
-            }
-#ifndef ENABLE_FOXGLOVE
-            if (!args.headless) {
-                fprintf(stderr, "[main] WARNING: camera stream disabled "
-                                "(no Foxglove bridge to consume it)\n");
-                scfg.enable.camera = false;
-            }
-#endif
+            sensor_config_t scfg;
+            airframe_effects_params_t effects;
+            build_sensor_config(&args, &scfg, &effects);
 
             if (sensor_init(&sim.sensors, sim.model,
                             &sim.transport, &scfg, NULL) != 0) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
+                if (sensors_requested(&args)) {
+                    transport_shutdown(&sim.transport);
+                    mj_deleteData(sim.data);
+                    mj_deleteModel(sim.model);
+                    return 1;
+                }
                 sim.ipc_enabled = false;
             }
         }

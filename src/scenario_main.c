@@ -1,10 +1,12 @@
 #include "scenario.h"
 #include "vehicle/vehicle.h"
+#include "bridge/ap_scenario.h"
 #include "vehicle/assembly_config.h"
 #include "vehicle/airframe.h"
 #include "vehicle/controller_ops.h"
 #include "vehicle/estimator_ops.h"
 #include "vehicle/localization_ops.h"
+#include "environments/biome.h"
 #include "environments/environment_ops.h"
 #include "transport/transport_renoir.h"
 #include "setpoint.h"
@@ -13,6 +15,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#define DEFAULT_DRAG_CD_AREA_M2 0.06
 
 static int compose_scene(scenario_t *scenario, mjModel **out_model,
                          mjSpec **out_scene, char *error, int error_sz) {
@@ -35,7 +39,7 @@ static int compose_scene(scenario_t *scenario, mjModel **out_model,
         return -1;
     }
 
-    if (env->generate(scene, scenario->environment_seed) != 0) {
+    if (env->generate(env, scene, scenario->environment_seed) != 0) {
         snprintf(error, (size_t)error_sz, "environment '%s' generation failed",
                  scenario->environment);
         mj_deleteSpec(scene);
@@ -83,7 +87,7 @@ static int compose_scene(scenario_t *scenario, mjModel **out_model,
         mount->quat[0] = cos(half_yaw);
         mount->quat[3] = sin(half_yaw);
 
-        mjsElement *att = mjs_attach(mount->element, root->element,
+        const mjsElement *att = mjs_attach(mount->element, root->element,
                                      prefix, "");
         if (!att) {
             snprintf(error, (size_t)error_sz,
@@ -115,6 +119,9 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
         const vehicle_assembly_spec_t *as = &scenario->vehicles[i];
         vehicle_t *veh = &vehicles[i];
         memset(veh, 0, sizeof(*veh));
+        veh->last_imu_seq  = UINT32_MAX;
+        veh->last_gnss_seq = UINT32_MAX;
+        veh->last_baro_seq = UINT32_MAX;
 
         snprintf(veh->prefix, sizeof(veh->prefix), "%.*s_",
                           (int)(sizeof(veh->prefix) - 2), as->id);
@@ -133,11 +140,47 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
             return -1;
         }
 
-        veh->target.x = as->spawn_pos[0];
-        veh->target.y = as->spawn_pos[1];
-        veh->target.z = as->spawn_pos[2];
+        veh->target.x = as->has_target ? as->target_pos[0] : as->spawn_pos[0];
+        veh->target.y = as->has_target ? as->target_pos[1] : as->spawn_pos[1];
+        veh->target.z = as->has_target ? as->target_pos[2] : as->spawn_pos[2];
         veh->target.yaw = as->spawn_yaw;
 
+        veh->sensor_cfg = sensor_default_config();
+        veh->sensor_cfg_set = 1;
+        const environment_ops_t *env = environment_registry_find(scenario->environment);
+        if (env != NULL && env->biome != NULL) {
+            const biome_climate_t *cl = &env->biome->climate;
+            veh->sensor_cfg.weather = cl->default_weather;
+            veh->sensor_cfg.sky_visibility = cl->sky_visibility;
+            veh->sensor_cfg.ground_reflectivity = cl->ground_reflectivity;
+            veh->sensor_cfg.multipath_scale = cl->multipath_scale;
+        }
+        if (scenario->weather[0] != '\0') {
+            veh->sensor_cfg.weather = scenario->weather;
+        }
+        veh->sensor_cfg.imu_profile = as->imu[0] != '\0' ? as->imu : NULL;
+        veh->sensor_cfg.gnss_profile = as->gnss[0] != '\0' ? as->gnss : NULL;
+        veh->sensor_cfg.gnss_cold_start = as->gnss_cold_start != 0;
+        veh->sensor_cfg.rtk_corrections = as->gnss_rtk;
+        veh->sensor_cfg.baro_profile = as->baro[0] != '\0' ? as->baro : NULL;
+        veh->sensor_cfg.range_profile = as->rangefinder[0] != '\0' ? as->rangefinder : NULL;
+        veh->sensor_cfg.mag_profile = as->mag[0] != '\0' ? as->mag : NULL;
+        veh->sensor_cfg.vibration_scale = as->vibration;
+        veh->sensor_cfg.effects = as->effects_mask != 0 ? &as->effects : NULL;
+        {
+            const conditions_profile_t *cp = veh->sensor_cfg.weather != NULL
+                                                 ? conditions_find(veh->sensor_cfg.weather) : NULL;
+            if (cp != NULL) {
+                wind_init(&veh->wind, cp, 7001U + (unsigned)i);
+                veh->ambient_temp_c = cp->ambient_temp_c;
+                veh->sea_level_pressure_pa = cp->sea_level_pressure_pa;
+                veh->origin_alt_m = veh->sensor_cfg.gnss_origin_alt;
+                veh->drag_cd_area = as->drag_area > 0.0 ? as->drag_area : DEFAULT_DRAG_CD_AREA_M2;
+                veh->wind_enabled = veh->airframe != NULL && veh->airframe->airframe_class != NULL &&
+                                    strcmp(veh->airframe->airframe_class, "rotor_multicopter") == 0 &&
+                                    (cp->wind_speed_20ft_ms > 0.0 || cp->turbulence_w20_ms > 0.0);
+            }
+        }
         if (vehicle_resolve(veh, model, tp) != 0) {
             fprintf(stderr, "[scenario] vehicle %d resolve failed\n", i);
             return -1;
@@ -146,16 +189,16 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
     return 0;
 }
 
-static void destroy_vehicles(scenario_t *scenario, vehicle_t *vehicles) {
+static void destroy_vehicles(const scenario_t *scenario, vehicle_t *vehicles) {
     for (int i = 0; i < scenario->vehicle_count; i++) {
         vehicle_cleanup(&vehicles[i]);
     }
 }
 
-static void print_vehicle_state(scenario_t *scenario, vehicle_t *vehicles,
-                                const mjModel *model, mjData *data) {
+static void print_vehicle_state(const scenario_t *scenario, const vehicle_t *vehicles,
+                                const mjModel *model, const mjData *data) {
     for (int i = 0; i < scenario->vehicle_count; i++) {
-        vehicle_t *veh = &vehicles[i];
+        const vehicle_t *veh = &vehicles[i];
         char prefix_buf[VEHICLE_MAX_PREFIX_LEN];
         snprintf(prefix_buf, sizeof(prefix_buf), "%.*s",
                        (int)(sizeof(prefix_buf) - 1), veh->prefix);
@@ -184,6 +227,15 @@ static int run_scenario(scenario_t *scenario, vehicle_t *vehicles,
     int print_every = (int)(0.2 / dt);
     int step = 0;
 
+    int bridged = ap_scenario_find(scenario);
+    if (bridged == -2) {
+        fprintf(stderr, "[scenario] ERROR: bridge must be ardupilot, px4 or betaflight on at most one vehicle\n");
+        return 1;
+    }
+    if (bridged >= 0) {
+        return ap_scenario_run(scenario, vehicles, model, data, bridged);
+    }
+
     while (data->time < scenario->duration_s) {
         for (int i = 0; i < scenario->vehicle_count; i++) {
             sensor_update(&vehicles[i].sensors, model, data,
@@ -201,7 +253,7 @@ static int run_scenario(scenario_t *scenario, vehicle_t *vehicles,
 
     printf("\n[scenario] final states:\n");
     for (int i = 0; i < scenario->vehicle_count; i++) {
-        vehicle_t *veh = &vehicles[i];
+        const vehicle_t *veh = &vehicles[i];
         char prefix_buf[VEHICLE_MAX_PREFIX_LEN];
         snprintf(prefix_buf, sizeof(prefix_buf), "%.*s",
                        (int)(sizeof(prefix_buf) - 1), veh->prefix);

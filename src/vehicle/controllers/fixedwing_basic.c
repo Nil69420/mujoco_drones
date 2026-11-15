@@ -54,7 +54,7 @@ static int fw_init(controller_t *ctrl, int num_channels) {
 static void fw_update(controller_t *ctrl, const estimated_state_t *state,
                       const setpoint_t *target, double dt,
                       actuator_command_t *out) {
-    fixedwing_gains_t *gains = ctrl->ctx;
+    const fixedwing_gains_t *gains = ctrl->ctx;
     if (!gains || !state || !target || !out) return;
     (void)dt;
 

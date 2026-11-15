@@ -1,0 +1,42 @@
+name: Set up ArduCopter SITL
+description: Builds (or restores from cache) a pinned ArduCopter SITL binary and a Python environment with pymavlink
+inputs:
+  tag:
+    description: ArduPilot tag
+    required: true
+  commit:
+    description: Commit the tag must resolve to
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cache the ArduCopter SITL build
+      id: cache-sitl
+      uses: actions/cache@v4
+      with:
+        path: ~/ardupilot-sitl
+        key: sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v2
+    - name: Build ArduCopter SITL
+      if: steps.cache-sitl.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        python3 -m venv /tmp/buildvenv
+        /tmp/buildvenv/bin/pip install empy==3.3.4 future==1.0.0 pexpect==4.9.0 pymavlink==2.4.50 setuptools==69.5.1
+        git clone --depth 1 --branch "${{ inputs.tag }}" --recurse-submodules --shallow-submodules \
+          https://github.com/ArduPilot/ardupilot.git /tmp/ardupilot
+        test "$(git -C /tmp/ardupilot rev-parse HEAD)" = "${{ inputs.commit }}"
+        cd /tmp/ardupilot
+        PATH=/tmp/buildvenv/bin:$PATH ./modules/waf/waf-light configure --board sitl
+        PATH=/tmp/buildvenv/bin:$PATH ./modules/waf/waf-light build --target bin/arducopter -j"$(nproc)"
+        mkdir -p ~/ardupilot-sitl
+        cp build/sitl/bin/arducopter Tools/autotest/default_params/copter.parm ~/ardupilot-sitl/
+    - name: Python environment for the flight scripts
+      shell: bash
+      run: |
+        python3 -m venv /tmp/apvenv
+        /tmp/apvenv/bin/pip install pymavlink==2.4.50 future==1.0.0
+        {
+          echo "ARDUPILOT_COPTER=$HOME/ardupilot-sitl/arducopter"
+          echo "ARDUPILOT_COPTER_DEFAULTS=$HOME/ardupilot-sitl/copter.parm"
+          echo "ARDUPILOT_PYTHON=/tmp/apvenv/bin/python"
+        } >> "$GITHUB_ENV"

@@ -1,0 +1,17 @@
+[scenario]
+environment = desert
+environment_seed = 5
+weather = clear_calm
+duration = 3600.0
+
+[vehicle px0]
+airframe = quad_x
+controller = pd_multicopter
+estimator = ground_truth
+localization = ground_truth
+spawn = 0.0 0.0 0.1
+bridge = px4
+bridge_port = 4560
+imu = icm42688p
+baro = dps310
+mag = rm3100

@@ -1,0 +1,7 @@
+{
+   mujoco_set_const_zero_size_aligned_alloc
+   Memcheck:BadSize
+   fun:aligned_alloc
+   fun:mj_setConst
+   ...
+}

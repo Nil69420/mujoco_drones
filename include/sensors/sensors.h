@@ -7,7 +7,17 @@
 
 #include "sensors/sensor_types.h"
 #include "sensors/noise.h"
+#include "sensors/models/airframe_effects.h"
+#include "sensors/models/baro_model.h"
+#include "sensors/models/gnss_model.h"
+#include "sensors/models/imu_model.h"
+#include "sensors/models/mag_model.h"
+#include "sensors/models/range_model.h"
+#include "conditions/conditions.h"
+#include "sensors/camera_egl.h"
+#include "sensors/models/camera_model.h"
 #include "transport/transport.h"
+#include "transport/frame_out.h"
 #include "setpoint.h"
 
 typedef struct {
@@ -48,6 +58,29 @@ typedef struct {
     double baro_alt_noise;
     double lidar_range_noise;
     double ir_range_noise;
+
+    const char *imu_profile;
+    const char *gnss_profile;
+    bool gnss_cold_start;
+    const char *baro_profile;
+    const char *mag_profile;
+    const char *range_profile;
+    double ground_reflectivity;
+    double mag_rate;
+    const char *weather;
+    const char *camera_profile;
+    bool camera_mono;
+    bool camera_headless;
+    bool camera_legacy_topic;
+    double camera_exposure_s;
+    double vibration_scale;
+    const airframe_effects_params_t *effects;
+    double mag_field_enu_ut[3];
+    double sky_visibility;
+    double multipath_scale;
+    int rtk_corrections;
+    double ambient_temp_c;
+    double sea_level_pressure_pa;
 } sensor_config_t;
 
 typedef struct {
@@ -68,11 +101,9 @@ typedef struct {
     int body_base;
     int camera_id;
 
-    int dec_imu,    dec_gnss,   dec_baro;
-    int dec_lidar,  dec_camera, dec_infrared;
+    double acc_imu, acc_gnss, acc_baro;
+    double acc_lidar, acc_camera, acc_infrared;
 
-    int inv_imu,    inv_gnss,   inv_baro;
-    int inv_lidar,  inv_camera, inv_infrared;
 
     uint32_t seq_imu, seq_gnss, seq_baro;
     uint32_t seq_lidar, seq_camera, seq_infrared;
@@ -94,6 +125,11 @@ typedef struct {
     bool       cam_initialized;
     bool       cam_due;
 
+    camera_egl_t   egl;
+    camera_model_t cam_model;
+    bool           use_cam_model;
+    frame_out_t    cam_out;
+    bool           cam_out_open;
     unsigned char *rgb_buf;
     float         *depth_buf;
 
@@ -105,6 +141,30 @@ typedef struct {
     sensor_baro_t baro_latest;
 
     noise_rng_t rng;
+
+    double sim_dt;
+    double sensor_temp_c;
+    imu_model_t  imu_model;
+    gnss_model_t gnss_model;
+    baro_model_t baro_model;
+    bool use_imu_model, use_gnss_model, use_baro_model, use_mag_model;
+    airframe_effects_t effects;
+    bool use_effects;
+    mag_model_t  mag_model;
+    range_model_t range_model;
+    bool use_range_model;
+    int          mag_every;
+    int          mag_count;
+    double       mag_hold[3];
+    thermal_t    thermal;
+    vibration_t  vibration;
+    bool         use_vibration;
+    int          act_thrust[4];
+    double       thrust_max;
+    double       vib_accel[3];
+    double       vib_gyro[3];
+    double       thrust_fraction;
+    double       airframe_thrust_fraction;
 } sensor_mgr_t;
 
 sensor_config_t sensor_default_config(void);

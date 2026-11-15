@@ -1,0 +1,14 @@
+[scenario]
+environment = desert
+environment_seed = 5
+weather = clear_calm
+duration = 14.0
+
+[vehicle h0]
+airframe = hexa
+controller = pd_multicopter
+estimator = ground_truth
+localization = ground_truth
+spawn = 0.0 0.0 0.3
+target = 0.0 0.0 3.0
+yaw = 0.0

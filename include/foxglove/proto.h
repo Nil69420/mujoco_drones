@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "foxglove/ops.h"
+#include "foxglove/ws.h"
+
 typedef struct {
     uint32_t    id;
     const char *topic;
@@ -21,19 +24,21 @@ typedef struct {
 enum { FG_MAX_SUBS = 32 };
 
 typedef struct {
-    int                fd;
+    ws_conn_t          conn;
     bool               alive;
     fg_subscription_t  subs[FG_MAX_SUBS];
     int                num_subs;
+    uint64_t           stall_since_ms;
 } fg_client_t;
 
-int fg_send_server_info(int fd);
-int fg_send_advertise(int fd, const fg_channel_t *channels, int n);
-int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
+int fg_send_server_info(fg_client_t *c);
+int fg_send_advertise(fg_client_t *c, const fg_channel_t *channels, int n);
+int fg_send_status(fg_client_t *c, int level, const char *message);
+int fg_send_message(fg_client_t *c, uint32_t sub_id, uint64_t timestamp_ns,
                     const void *json, size_t json_len);
 
-int fg_parse_uint(const char *s, const char *key, uint32_t *out);
-void fg_handle_client_message(fg_client_t *client, const char *msg, size_t len);
+int fg_handle_client_message(fg_client_t *client, const char *msg, size_t len,
+                             uint32_t num_channels);
 const fg_subscription_t *fg_find_sub(const fg_client_t *c, uint32_t ch_id);
 void fg_close_client(fg_client_t *c);
 

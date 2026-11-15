@@ -1,0 +1,5 @@
+called_from_lib:libmujoco.so.3.5.0
+called_from_lib:librenoir.so
+called_from_lib:libGLEW.so
+called_from_lib:libGL.so.1
+called_from_lib:libglfw.so.3

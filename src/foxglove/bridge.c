@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include "foxglove/foxglove.h"
 #include "foxglove/proto.h"
 #include "foxglove/serialize.h"
 #include "foxglove/ws.h"
 #include "sensors/sensor_types.h"
 
+#include <stdbool.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -19,9 +21,30 @@
 #include <time.h>
 #include <unistd.h>
 
+typedef struct {
+    int       fd;
+    uint64_t  deadline_ms;
+    char     *buf;
+    size_t    len;
+} fg_pending_t;
+
+enum {
+    FG_MAX_PENDING = 8,
+    FG_HANDSHAKE_TIMEOUT_MS = 3000,
+    FG_STALL_TIMEOUT_MS = 10000,
+    FG_RX_CHUNK = 4096,
+    FG_LISTEN_BACKLOG = 16
+};
+
+#define FG_DEFAULT_CAMERA_FPS 10.0
+
+#define FG_TX_CAP ((size_t)4 * 1024 * 1024)
+
 struct foxglove_bridge {
     transport_t   *tp;
     uint16_t       port;
+    char           bind_addr[64];
+    fg_pending_t   pending[FG_MAX_PENDING];
     int            listen_fd;
     atomic_bool    running;
     pthread_t      thread;
@@ -39,6 +62,8 @@ struct foxglove_bridge {
     size_t   cam_rgb_buf_sz;
     size_t   cam_json_buf_sz;
     int      cam_rgb_ch;
+    uint64_t cam_next_ms;
+    uint64_t cam_interval_ms;
 };
 
 static const char SCHEMA_IMU[] =
@@ -139,6 +164,7 @@ enum {
     NUM_DRONE_TOPICS = (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0])),
     DRONE_TOPIC_CAM_RGB_IDX = 6,
 };
+_Static_assert(NUM_DRONE_TOPICS - FG_MAX_CHANNELS <= 0, "the drone topic table exceeds the channel limit");
 
 static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
                                        size_t msg_len,
@@ -148,7 +174,7 @@ static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
     }
 
     const sensor_camera_rgb_hdr_t *hdr = (const sensor_camera_rgb_hdr_t *)msg_buf;
-    if (hdr->width == 0 || hdr->height == 0 || hdr->channels != 3) {
+    if (hdr->width == 0 || hdr->height == 0 || (hdr->channels != 1 && hdr->channels != 3)) {
         return false;
     }
 
@@ -174,53 +200,213 @@ static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
     return true;
 }
 
-static void bridge_accept_connection(foxglove_bridge_t *br) {
-    int cfd = accept(br->listen_fd, NULL, NULL);
-    if (cfd < 0) return;
+static uint64_t now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+}
 
+static void reply_and_close(int fd, const char *response) {
+    (void)send(fd, response, strlen(response), MSG_NOSIGNAL | MSG_DONTWAIT);
+    close(fd);
+}
+
+static void pending_free(fg_pending_t *pd) {
+    free(pd->buf);
+    pd->buf = NULL;
+    pd->fd = -1;
+    pd->len = 0;
+}
+
+static void bridge_accept_connections(foxglove_bridge_t *br) {
+    for (;;) {
+        int cfd = accept4(br->listen_fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+        if (cfd < 0) {
+            return;
+        }
+        int slot = -1;
+        for (int i = 0; i < FG_MAX_PENDING; i++) {
+            if (br->pending[i].fd < 0) { slot = i; break; }
+        }
+        char *buf = slot >= 0 ? malloc(WS_HANDSHAKE_MAX + 1) : NULL;
+        if (slot < 0 || buf == NULL) {
+            free(buf);
+            reply_and_close(cfd, "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n"
+                                 "Content-Length: 0\r\n\r\n");
+            continue;
+        }
+        int flag = 1;
+        setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+        setsockopt(cfd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
+        int idle = 30;
+        int intvl = 10;
+        int cnt = 3;
+        setsockopt(cfd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+        setsockopt(cfd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+        setsockopt(cfd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+        br->pending[slot].fd = cfd;
+        br->pending[slot].buf = buf;
+        br->pending[slot].len = 0;
+        br->pending[slot].deadline_ms = now_ms() + FG_HANDSHAKE_TIMEOUT_MS;
+    }
+}
+
+static void bridge_close_client(foxglove_bridge_t *br, int ci, const char *why) {
+    fprintf(stderr, "[foxglove] client disconnected (slot %d): %s\n", ci, why);
+    fg_close_client(&br->clients[ci]);
+}
+
+static void bridge_send_close(fg_client_t *c, uint16_t code) {
+    uint8_t body[2] = {(uint8_t)(code >> 8), (uint8_t)code};
+    (void)ws_conn_enqueue(&c->conn, WS_OP_CLOSE, body, sizeof(body), NULL, 0);
+    (void)ws_conn_flush(&c->conn);
+}
+
+static void bridge_feed_client(foxglove_bridge_t *br, int ci, const uint8_t *data, size_t n) {
+    fg_client_t *client = &br->clients[ci];
+    size_t off = 0;
+    while (off < n && client->alive) {
+        ws_event_t ev;
+        size_t used = ws_parser_feed(client->conn.parser, data + off, n - off, &ev);
+        off += used;
+        switch (ev.kind) {
+        case WS_EV_TEXT:
+            (void)fg_handle_client_message(client, (const char *)ev.data, ev.len,
+                                           (uint32_t)br->num_channels);
+            break;
+        case WS_EV_PING:
+            (void)ws_conn_enqueue(&client->conn, WS_OP_PONG, ev.data, ev.len, NULL, 0);
+            break;
+        case WS_EV_CLOSE:
+            bridge_send_close(client, ev.close_code == 1005 ? 1000 : ev.close_code);
+            bridge_close_client(br, ci, "client closed");
+            return;
+        case WS_EV_ERROR:
+            bridge_send_close(client, ev.close_code);
+            bridge_close_client(br, ci, "protocol error");
+            return;
+        case WS_EV_BINARY:
+        case WS_EV_PONG:
+        case WS_EV_NONE:
+            break;
+        }
+        if (used == 0) {
+            break;
+        }
+    }
+}
+
+static void bridge_promote(foxglove_bridge_t *br, int pi, const ws_handshake_t *hs) {
+    fg_pending_t *pd = &br->pending[pi];
     int slot = -1;
     for (int i = 0; i < FG_MAX_CLIENTS; i++) {
         if (!br->clients[i].alive) { slot = i; break; }
     }
-
-    if (slot < 0 || ws_accept_handshake(cfd) != 0) {
-        close(cfd);
+    if (slot < 0) {
+        reply_and_close(pd->fd, "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n"
+                                "Content-Length: 0\r\n\r\n");
+        pending_free(pd);
         return;
     }
-
-    int flag = 1;
-    setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-
-    struct timeval rcv_tv = { .tv_sec = 0, .tv_usec = 50000 };
-    setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
-
-    struct timeval snd_tv = { .tv_sec = 0, .tv_usec = 5000 };
-    setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
-
-    br->clients[slot].fd       = cfd;
-    br->clients[slot].alive    = true;
-    br->clients[slot].num_subs = 0;
-
-    fg_send_server_info(cfd);
-    fg_send_advertise(cfd, br->channels, br->num_channels);
+    char resp[512];
+    int rlen = ws_handshake_response(hs, resp, sizeof(resp));
+    if (rlen < 0 || send(pd->fd, resp, (size_t)rlen, MSG_NOSIGNAL | MSG_DONTWAIT) != rlen) {
+        close(pd->fd);
+        pending_free(pd);
+        return;
+    }
+    fg_client_t *client = &br->clients[slot];
+    if (ws_conn_open(&client->conn, pd->fd, FG_TX_CAP) != 0) {
+        close(pd->fd);
+        pending_free(pd);
+        return;
+    }
+    client->alive = true;
+    client->num_subs = 0;
+    client->stall_since_ms = 0;
+    size_t extra = pd->len > hs->request_len ? pd->len - hs->request_len : 0;
+    uint8_t *leftover = NULL;
+    if (extra > 0) {
+        leftover = malloc(extra);
+        if (leftover != NULL) {
+            memcpy(leftover, pd->buf + hs->request_len, extra);
+        }
+    }
+    pending_free(pd);
+    (void)fg_send_server_info(client);
+    (void)fg_send_advertise(client, br->channels, br->num_channels);
+    (void)ws_conn_flush(&client->conn);
     fprintf(stderr, "[foxglove] client connected (slot %d)\n", slot);
+    if (leftover != NULL) {
+        bridge_feed_client(br, slot, leftover, extra);
+        free(leftover);
+    }
 }
 
-static void bridge_handle_client_data(foxglove_bridge_t *br, int ci,
-                                      uint8_t *recv_buf, size_t buf_sz) {
-    uint8_t opcode = 0;
-    ssize_t plen = ws_recv_frame(br->clients[ci].fd,
-                                 recv_buf, buf_sz, &opcode);
+static void bridge_handle_pending(foxglove_bridge_t *br, int pi) {
+    fg_pending_t *pd = &br->pending[pi];
+    ssize_t n = recv(pd->fd, pd->buf + pd->len, WS_HANDSHAKE_MAX - pd->len, MSG_DONTWAIT);
+    if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+        close(pd->fd);
+        pending_free(pd);
+        return;
+    }
+    if (n < 0) {
+        return;
+    }
+    pd->len += (size_t)n;
+    ws_handshake_t hs;
+    ws_handshake_status_t st = ws_handshake_check(pd->buf, pd->len, &hs);
+    if (st == WS_HS_NEED_MORE) {
+        return;
+    }
+    if (st == WS_HS_BAD) {
+        reply_and_close(pd->fd, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n"
+                                "Content-Length: 0\r\n\r\n");
+        pending_free(pd);
+        return;
+    }
+    bridge_promote(br, pi, &hs);
+}
 
-    if (plen < 0 || opcode == WS_OP_CLOSE) {
-        fprintf(stderr, "[foxglove] client disconnected (slot %d)\n", ci);
-        fg_close_client(&br->clients[ci]);
-    } else if (opcode == WS_OP_TEXT && plen > 0) {
-        fg_handle_client_message(&br->clients[ci],
-                                (const char *)recv_buf, (size_t)plen);
-    } else if (opcode == WS_OP_PING) {
-        ws_send_frame(br->clients[ci].fd, WS_OP_PONG,
-                      recv_buf, (size_t)plen);
+static void bridge_handle_client_data(foxglove_bridge_t *br, int ci) {
+    uint8_t rx[FG_RX_CHUNK];
+    ssize_t n = recv(br->clients[ci].conn.fd, rx, sizeof(rx), MSG_DONTWAIT);
+    if (n == 0) {
+        bridge_close_client(br, ci, "peer closed");
+        return;
+    }
+    if (n < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+            bridge_close_client(br, ci, "receive error");
+        }
+        return;
+    }
+    bridge_feed_client(br, ci, rx, (size_t)n);
+}
+
+static void bridge_flush_clients(foxglove_bridge_t *br) {
+    uint64_t now = now_ms();
+    for (int ci = 0; ci < FG_MAX_CLIENTS; ci++) {
+        fg_client_t *client = &br->clients[ci];
+        if (!client->alive || !ws_conn_pending(&client->conn)) {
+            if (client->alive) {
+                client->stall_since_ms = 0;
+            }
+            continue;
+        }
+        size_t before = client->conn.tx_len;
+        if (ws_conn_flush(&client->conn) != 0) {
+            bridge_close_client(br, ci, "send error");
+            continue;
+        }
+        if (!ws_conn_pending(&client->conn) || client->conn.tx_len < before) {
+            client->stall_since_ms = 0;
+        } else if (client->stall_since_ms == 0) {
+            client->stall_since_ms = now;
+        } else if (now - client->stall_since_ms > FG_STALL_TIMEOUT_MS) {
+            bridge_close_client(br, ci, "client stopped reading");
+        }
     }
 }
 
@@ -266,9 +452,13 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
     if (drained == 0) return;
     if (!has_sub) return;
 
-    if (ch == br->cam_rgb_ch &&
-        !bridge_validate_camera_rgb(msg_buf, last_valid_len, br->cam_rgb_buf_sz)) {
-        return;
+    if (ch == br->cam_rgb_ch) {
+        uint64_t now = now_ms();
+        if (now < br->cam_next_ms ||
+            !bridge_validate_camera_rgb(msg_buf, last_valid_len, br->cam_rgb_buf_sz)) {
+            return;
+        }
+        br->cam_next_ms = now + br->cam_interval_ms;
     }
 
     int jlen = fg_serializers[ch](msg_buf, json_buf, json_buf_sz);
@@ -286,17 +476,97 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
         const fg_subscription_t *sub = fg_find_sub(&br->clients[ci], ch_id);
         if (!sub) continue;
 
-        if (fg_send_message(br->clients[ci].fd, sub->sub_id,
-                            ts, json_buf, (size_t)jlen) != 0) {
-            int send_err = errno;
-            if (ch == br->cam_rgb_ch &&
-                (send_err == EAGAIN || send_err == EWOULDBLOCK ||
-                 send_err == ETIMEDOUT || send_err == ENOBUFS)) {
-                continue;
-            }
-            fprintf(stderr, "[foxglove] send failed, dropping client %d\n",
-                    ci);
-            fg_close_client(&br->clients[ci]);
+        (void)fg_send_message(&br->clients[ci], sub->sub_id, ts, json_buf, (size_t)jlen);
+    }
+}
+
+enum { POLL_SLOTS = 1 + FG_MAX_PENDING + FG_MAX_CLIENTS };
+
+typedef struct {
+    struct pollfd pfds[POLL_SLOTS];
+    int owner[POLL_SLOTS];
+    bool is_pending[POLL_SLOTS];
+    int count;
+} poll_set_t;
+
+static void poll_set_add(poll_set_t *set, int fd, short events, int owner, bool is_pending) {
+    set->pfds[set->count].fd = fd;
+    set->pfds[set->count].events = events;
+    set->owner[set->count] = owner;
+    set->is_pending[set->count] = is_pending;
+    set->count++;
+}
+
+static void poll_set_build(const foxglove_bridge_t *br, poll_set_t *set) {
+    set->count = 0;
+    poll_set_add(set, br->listen_fd, POLLIN, -1, false);
+    for (int i = 0; i < FG_MAX_PENDING; i++) {
+        if (br->pending[i].fd >= 0) {
+            poll_set_add(set, br->pending[i].fd, POLLIN, i, true);
+        }
+    }
+    for (int i = 0; i < FG_MAX_CLIENTS; i++) {
+        if (br->clients[i].alive) {
+            short events = (short)(POLLIN | (ws_conn_pending(&br->clients[i].conn) ? POLLOUT : 0));
+            poll_set_add(set, br->clients[i].conn.fd, events, i, false);
+        }
+    }
+}
+
+static void bridge_dispatch_ready(foxglove_bridge_t *br, const poll_set_t *set) {
+    const short wake = (short)(POLLIN | POLLHUP | POLLERR);
+    if (set->pfds[0].revents & POLLIN) {
+        bridge_accept_connections(br);
+    }
+    for (int k = 1; k < set->count; k++) {
+        if ((set->pfds[k].revents & wake) == 0) {
+            continue;
+        }
+        if (set->is_pending[k]) {
+            bridge_handle_pending(br, set->owner[k]);
+        } else if (set->owner[k] >= 0 && set->owner[k] < FG_MAX_CLIENTS &&
+                   br->clients[set->owner[k]].alive) {
+            bridge_handle_client_data(br, set->owner[k]);
+        }
+    }
+}
+
+static void bridge_expire_pending(foxglove_bridge_t *br) {
+    uint64_t tick = now_ms();
+    for (int i = 0; i < FG_MAX_PENDING; i++) {
+        if (br->pending[i].fd >= 0 && tick > br->pending[i].deadline_ms) {
+            close(br->pending[i].fd);
+            pending_free(&br->pending[i]);
+        }
+    }
+}
+
+static void bridge_broadcast_all(foxglove_bridge_t *br, uint8_t *msg_buf, size_t msg_size,
+                                 char *json_buf, size_t json_size) {
+    for (int ch = 0; ch < br->num_channels; ch++) {
+        bool is_camera = ch == br->cam_rgb_ch;
+        if (is_camera && !br->cam_rgb_buf) {
+            continue;
+        }
+        if (is_camera) {
+            bridge_broadcast_channel(br, ch, br->cam_rgb_buf, br->cam_rgb_buf_sz, br->cam_json_buf,
+                                     br->cam_json_buf_sz);
+        } else {
+            bridge_broadcast_channel(br, ch, msg_buf, msg_size, json_buf, json_size);
+        }
+    }
+}
+
+static void bridge_close_all(foxglove_bridge_t *br) {
+    for (int i = 0; i < FG_MAX_CLIENTS; i++) {
+        if (br->clients[i].alive) {
+            fg_close_client(&br->clients[i]);
+        }
+    }
+    for (int i = 0; i < FG_MAX_PENDING; i++) {
+        if (br->pending[i].fd >= 0) {
+            close(br->pending[i].fd);
+            pending_free(&br->pending[i]);
         }
     }
 }
@@ -304,61 +574,21 @@ static void bridge_broadcast_channel(foxglove_bridge_t *br, int ch,
 static void *bridge_thread(void *arg) {
     foxglove_bridge_t *br = arg;
 
-    uint8_t recv_buf[4096];
-    char    json_buf[8192];
+    char json_buf[8192];
     uint8_t msg_buf[sizeof(sensor_lidar_t)];
 
     while (atomic_load(&br->running)) {
-        struct pollfd pfds[1 + FG_MAX_CLIENTS];
-        int nfds = 0;
-
-        pfds[nfds].fd     = br->listen_fd;
-        pfds[nfds].events = POLLIN;
-        nfds++;
-
-        for (int i = 0; i < FG_MAX_CLIENTS; i++) {
-            if (br->clients[i].alive) {
-                pfds[nfds].fd     = br->clients[i].fd;
-                pfds[nfds].events = POLLIN;
-                nfds++;
-            }
+        poll_set_t set;
+        poll_set_build(br, &set);
+        if (poll(set.pfds, (nfds_t)set.count, 5) > 0) {
+            bridge_dispatch_ready(br, &set);
         }
-
-        int ready = poll(pfds, (nfds_t)nfds, 10);
-
-        if (ready > 0 && (pfds[0].revents & POLLIN)) {
-            bridge_accept_connection(br);
-        }
-
-        int pfd_idx = 1;
-        for (int i = 0; i < FG_MAX_CLIENTS; i++) {
-            if (!br->clients[i].alive) continue;
-            if (pfd_idx < nfds && (pfds[pfd_idx].revents & POLLIN)) {
-                bridge_handle_client_data(br, i, recv_buf, sizeof(recv_buf));
-            }
-            pfd_idx++;
-        }
-
-        for (int ch = 0; ch < br->num_channels; ch++) {
-            if (ch == br->cam_rgb_ch && !br->cam_rgb_buf) {
-                continue;
-            }
-
-            if (br->cam_rgb_buf && ch == br->cam_rgb_ch) {
-                bridge_broadcast_channel(br, ch,
-                                         br->cam_rgb_buf, br->cam_rgb_buf_sz,
-                                         br->cam_json_buf, br->cam_json_buf_sz);
-            } else {
-                bridge_broadcast_channel(br, ch, msg_buf, sizeof(msg_buf),
-                                         json_buf, sizeof(json_buf));
-            }
-        }
+        bridge_expire_pending(br);
+        bridge_broadcast_all(br, msg_buf, sizeof(msg_buf), json_buf, sizeof(json_buf));
+        bridge_flush_clients(br);
     }
 
-    for (int i = 0; i < FG_MAX_CLIENTS; i++) {
-        if (br->clients[i].alive) fg_close_client(&br->clients[i]);
-    }
-
+    bridge_close_all(br);
     return NULL;
 }
 
@@ -374,15 +604,18 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
     br->thread_started = false;
     atomic_store(&br->running, false);
 
+    const char *env_bind = secure_getenv("MUJOCO_DRONES_FOXGLOVE_BIND");
+    snprintf(br->bind_addr, sizeof(br->bind_addr), "%s",
+             env_bind != NULL && env_bind[0] != '\0' ? env_bind : "127.0.0.1");
     for (int i = 0; i < FG_MAX_CLIENTS; i++) {
-        br->clients[i].fd    = -1;
-        br->clients[i].alive = false;
+        br->clients[i].conn.fd = -1;
+        br->clients[i].alive   = false;
+    }
+    for (int i = 0; i < FG_MAX_PENDING; i++) {
+        br->pending[i].fd = -1;
     }
 
-    int num_drone_topics = NUM_DRONE_TOPICS;
-    int max_channels = FG_MAX_CHANNELS;
-    int topic_count = num_drone_topics < max_channels ?
-                      num_drone_topics : max_channels;
+    const int topic_count = NUM_DRONE_TOPICS;
     for (int i = 0; i < topic_count; i++) {
         br->channels[i].id          = (uint32_t)(i + 1);
         br->channels[i].topic       = DRONE_TOPICS[i].topic;
@@ -401,6 +634,10 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
 
     /* Allocate dedicated heap buffers for the large camera RGB channel */
     br->cam_rgb_ch      = DRONE_TOPIC_CAM_RGB_IDX;
+    const char *fps_env = secure_getenv("MUJOCO_DRONES_FOXGLOVE_CAMERA_FPS");
+    double cam_fps = fps_env != NULL ? strtod(fps_env, NULL) : FG_DEFAULT_CAMERA_FPS;
+    cam_fps = (cam_fps >= 1.0 && cam_fps <= 240.0) ? cam_fps : FG_DEFAULT_CAMERA_FPS;
+    br->cam_interval_ms = (uint64_t)(1000.0 / cam_fps);
     br->cam_rgb_buf_sz  = sizeof(sensor_camera_rgb_hdr_t) +
                           (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 3;
     br->cam_json_buf_sz = (size_t)CAM_BUF_MAX_W * CAM_BUF_MAX_H * 4 + 512;
@@ -422,7 +659,7 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
 int foxglove_start(foxglove_bridge_t *br) {
     if (!br) return -1;
 
-    br->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    br->listen_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (br->listen_fd < 0) {
         perror("[foxglove] socket");
         return -1;
@@ -433,7 +670,12 @@ int foxglove_start(foxglove_bridge_t *br) {
 
     struct sockaddr_in addr = {0};
     addr.sin_family      = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (inet_pton(AF_INET, br->bind_addr, &addr.sin_addr) != 1) {
+        fprintf(stderr, "[foxglove] invalid bind address '%s'\n", br->bind_addr);
+        close(br->listen_fd);
+        br->listen_fd = -1;
+        return -1;
+    }
     addr.sin_port        = htons(br->port);
 
     if (bind(br->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
@@ -443,7 +685,7 @@ int foxglove_start(foxglove_bridge_t *br) {
         return -1;
     }
 
-    if (listen(br->listen_fd, 4) != 0) {
+    if (listen(br->listen_fd, FG_LISTEN_BACKLOG) != 0) {
         perror("[foxglove] listen");
         close(br->listen_fd);
         br->listen_fd = -1;
@@ -461,7 +703,7 @@ int foxglove_start(foxglove_bridge_t *br) {
     }
     br->thread_started = true;
 
-    fprintf(stderr, "[foxglove] WebSocket server on ws://0.0.0.0:%u\n",
+    fprintf(stderr, "[foxglove] WebSocket server on ws://%s:%u\n", br->bind_addr,
             br->port);
     return 0;
 }

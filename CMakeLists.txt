@@ -30,9 +30,11 @@ option(ENABLE_IPC "Enable IPC transport (requires renoir)" ON)
 option(ENABLE_FOXGLOVE "Enable Foxglove WebSocket bridge (requires IPC)" OFF)
 option(ENABLE_ASAN "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+option(ENABLE_COVERAGE "Instrument every target for gcov line and branch coverage" OFF)
 
 set(SOURCES
     src/main.c
+    src/cli.c
     src/controller.c
     src/viewer.c
 )
@@ -60,13 +62,16 @@ if(ENABLE_IPC)
 
     list(APPEND SOURCES
         src/sensors/sensors.c
+        src/sensors/sensors_init.c
+        src/sensors/sensors_read.c
+        src/sensors/sensors_camera.c
+        src/sensors/camera_egl.c
         src/transport/transport_renoir.c
+        src/transport/frame_out.c
     )
 
     if(ENABLE_FOXGLOVE)
         list(APPEND SOURCES
-            src/foxglove/sha1.c
-            src/foxglove/base64.c
             src/foxglove/ws.c
             src/foxglove/proto.c
             src/foxglove/serialize.c
@@ -78,19 +83,27 @@ if(ENABLE_IPC)
         src/vehicle/controller_registry.c
         src/vehicle/controllers/pd_multicopter.c
         src/vehicle/controllers/fixedwing_basic.c
+        src/vehicle/controllers/omav_basic.c
         src/vehicle/estimator_registry.c
         src/vehicle/estimators/ground_truth.c
         src/vehicle/estimators/complementary_filter.c
+        src/vehicle/estimators/kf_ins.c
+        src/vehicle/estimators/kf_axis.c
         src/vehicle/localization_registry.c
         src/vehicle/localization/ground_truth.c
         src/vehicle/localization/gnss.c
         src/vehicle/airframe_registry.c
-        src/environments/environment_registry.c
-        src/environments/desert.c
-        src/environments/forest.c
+    src/vehicle/airframes/aslfixedwing_spec.c
+    src/vehicle/airframes/quadx_spec.c
+    src/vehicle/airframes/omav_spec.c
         src/vehicle/vehicle.c
         src/vehicle/assembly_config.c
         src/scenario_main.c
+        src/bridge/truth.c
+        src/bridge/ap_runner.c
+        src/bridge/px4_runner.c
+        src/bridge/bf_runner.c
+        src/bridge/ap_scenario.c
     )
     list(APPEND SOURCES ${VEHICLE_SOURCES})
 endif()
@@ -112,6 +125,213 @@ set(COMMON_COMPILE_OPTIONS
     -fstack-protector-strong
 )
 
+set(MDMODEL_SOURCES
+    src/conditions/atmosphere.c
+    src/conditions/wind.c
+    src/conditions/thermal.c
+    src/conditions/vibration.c
+    src/conditions/presets.c
+    src/conditions/aero.c
+    src/sensors/models/imu_model.c
+    src/sensors/models/imu_profiles.c
+    src/sensors/models/gnss_model.c
+    src/sensors/models/gnss_profiles.c
+    src/sensors/models/baro_model.c
+    src/sensors/models/baro_profiles.c
+    src/sensors/models/airframe_effects.c
+    src/sensors/models/mag_model.c
+    src/sensors/models/mag_profiles.c
+    src/sensors/models/range_model.c
+    src/sensors/models/range_profiles.c
+    src/sensors/models/camera_model.c
+    src/sensors/models/camera_profiles.c
+    src/environments/terrain.c
+    src/environments/biome.c
+    src/environments/biome_scatter.c
+    src/environments/biome_profiles.c
+    src/environments/environment_registry.c
+    src/foxglove/ws_proto.c
+    src/foxglove/ops.c
+    src/foxglove/sha1.c
+    src/foxglove/base64.c
+    src/bridge/ap_json.c
+    src/bridge/ap_map.c
+    src/bridge/ap_link.c
+    src/bridge/ap_frames.c
+    src/bridge/mav2.c
+    src/bridge/mav_dialect.c
+    src/bridge/px4_msgs.c
+    src/bridge/px4_sensors.c
+    src/bridge/px4_link.c
+    src/bridge/bf_packets.c
+    src/bridge/bf_link.c
+    src/pilot/pilot_profile.c
+    src/pilot/pilot_core.c
+    src/pilot/pilot_evdev.c
+)
+add_library(mdmodels STATIC ${MDMODEL_SOURCES})
+set_source_files_properties(src/sensors/models/camera_model.c PROPERTIES
+    COMPILE_OPTIONS "-O3;-fno-math-errno;-ffinite-math-only;-fno-signed-zeros")
+target_include_directories(mdmodels PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(mdmodels PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_directories(mdmodels PUBLIC ${MUJOCO_DIR}/lib)
+target_include_directories(mdmodels PUBLIC ${MUJOCO_DIR}/include)
+target_link_libraries(mdmodels PUBLIC m mujoco)
+
+enable_testing()
+add_executable(test_conditions tests/test_conditions.c)
+target_include_directories(test_conditions PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_conditions PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_conditions PRIVATE mdmodels)
+add_test(NAME conditions COMMAND test_conditions)
+
+add_executable(test_imu_model tests/test_imu_model.c)
+target_include_directories(test_imu_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_imu_model PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_imu_model PRIVATE mdmodels)
+add_test(NAME imu_model COMMAND test_imu_model)
+
+add_executable(test_gnss_model tests/test_gnss_model.c)
+target_include_directories(test_gnss_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_gnss_model PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_gnss_model PRIVATE mdmodels)
+add_test(NAME gnss_model COMMAND test_gnss_model)
+
+add_executable(test_airframe_effects tests/test_airframe_effects.c)
+target_include_directories(test_airframe_effects PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_airframe_effects PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_airframe_effects PRIVATE mdmodels)
+add_test(NAME airframe_effects COMMAND test_airframe_effects)
+
+add_executable(test_misc_models tests/test_misc_models.c)
+target_include_directories(test_misc_models PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_misc_models PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_misc_models PRIVATE mdmodels)
+add_test(NAME misc_models COMMAND test_misc_models)
+
+add_executable(test_ws_proto tests/test_ws_proto.c)
+target_include_directories(test_ws_proto PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_ws_proto PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ws_proto PRIVATE mdmodels)
+add_test(NAME ws_proto COMMAND test_ws_proto)
+
+add_executable(test_fg_ops tests/test_fg_ops.c)
+target_include_directories(test_fg_ops PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_fg_ops PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_fg_ops PRIVATE mdmodels)
+add_test(NAME fg_ops COMMAND test_fg_ops)
+
+add_executable(test_camera_model tests/test_camera_model.c)
+target_include_directories(test_camera_model PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_camera_model PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_camera_model PRIVATE mdmodels)
+add_test(NAME camera_model COMMAND test_camera_model)
+
+add_executable(test_ap_json tests/test_ap_json.c)
+target_include_directories(test_ap_json PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_ap_json PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ap_json PRIVATE mdmodels m)
+add_test(NAME ap_json COMMAND test_ap_json)
+
+add_executable(test_ap_map tests/test_ap_map.c)
+target_include_directories(test_ap_map PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_ap_map PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ap_map PRIVATE mdmodels m)
+add_test(NAME ap_map COMMAND test_ap_map)
+
+add_executable(test_ap_link tests/test_ap_link.c)
+target_include_directories(test_ap_link PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_ap_link PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ap_link PRIVATE mdmodels m)
+add_test(NAME ap_link COMMAND test_ap_link)
+
+add_executable(test_ap_frames tests/test_ap_frames.c)
+target_include_directories(test_ap_frames PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_ap_frames PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_ap_frames PRIVATE mdmodels m)
+add_test(NAME ap_frames COMMAND test_ap_frames)
+
+add_executable(test_mav2 tests/test_mav2.c)
+target_include_directories(test_mav2 PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_mav2 PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_mav2 PRIVATE mdmodels m)
+add_test(NAME mav2 COMMAND test_mav2)
+
+add_executable(test_px4_sensors tests/test_px4_sensors.c)
+target_include_directories(test_px4_sensors PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_px4_sensors PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_px4_sensors PRIVATE mdmodels m)
+add_test(NAME px4_sensors COMMAND test_px4_sensors)
+
+add_executable(test_px4_link tests/test_px4_link.c)
+target_include_directories(test_px4_link PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_px4_link PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_px4_link PRIVATE mdmodels m)
+add_test(NAME px4_link COMMAND test_px4_link)
+
+add_executable(test_bf_packets tests/test_bf_packets.c)
+target_include_directories(test_bf_packets PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_bf_packets PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_bf_packets PRIVATE mdmodels m)
+add_test(NAME bf_packets COMMAND test_bf_packets)
+
+add_executable(test_pilot tests/test_pilot.c)
+target_include_directories(test_pilot PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_pilot PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_pilot PRIVATE mdmodels m)
+add_test(NAME pilot COMMAND test_pilot)
+
+add_executable(test_pilot_evdev tests/test_pilot_evdev.c)
+target_include_directories(test_pilot_evdev PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_pilot_evdev PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_pilot_evdev PRIVATE mdmodels m)
+add_test(NAME pilot_evdev COMMAND test_pilot_evdev)
+
+add_executable(pilot_tool src/tools/pilot_tool.c)
+target_include_directories(pilot_tool PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(pilot_tool PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(pilot_tool PRIVATE mdmodels m)
+
+add_executable(test_cli tests/test_cli.c src/cli.c)
+target_include_directories(test_cli PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_cli PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_cli PRIVATE mdmodels)
+add_test(NAME cli COMMAND test_cli)
+
+add_executable(test_scenario_effects tests/test_scenario_effects.c src/vehicle/assembly_config.c)
+target_include_directories(test_scenario_effects PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_scenario_effects PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_scenario_effects PRIVATE mdmodels m)
+add_test(NAME scenario_effects COMMAND test_scenario_effects)
+
+add_executable(test_serialize tests/test_serialize.c src/foxglove/serialize.c src/foxglove/base64.c)
+target_include_directories(test_serialize PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_serialize PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_serialize PRIVATE m)
+add_test(NAME serialize COMMAND test_serialize)
+
+add_executable(test_import_config tests/test_import_config.c src/urdf_import_config.c)
+target_include_directories(test_import_config PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_import_config PRIVATE ${COMMON_COMPILE_OPTIONS})
+add_test(NAME import_config COMMAND test_import_config)
+
+add_executable(test_biomes tests/test_biomes.c)
+target_include_directories(test_biomes PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+target_compile_options(test_biomes PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_biomes PRIVATE mdmodels)
+add_test(NAME biomes COMMAND test_biomes WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
+add_executable(test_kf_ins tests/test_kf_ins.c
+    src/vehicle/estimators/kf_ins.c
+    src/vehicle/estimators/kf_axis.c
+    src/vehicle/estimators/ground_truth.c
+    src/vehicle/estimators/complementary_filter.c
+    src/vehicle/estimator_registry.c)
+target_include_directories(test_kf_ins PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_kf_ins PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_kf_ins PRIVATE mdmodels)
+add_test(NAME kf_ins COMMAND test_kf_ins)
+
 target_compile_options(hummingbird PRIVATE ${COMMON_COMPILE_OPTIONS})
 
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -128,9 +348,21 @@ target_link_directories(hummingbird PRIVATE
 )
 
 target_link_libraries(hummingbird PRIVATE
+    mdmodels
     mujoco
     m
 )
+
+find_library(EGL_LIBRARY EGL)
+find_path(EGL_INCLUDE_DIR EGL/egl.h)
+if(EGL_LIBRARY AND EGL_INCLUDE_DIR)
+    target_link_libraries(hummingbird PRIVATE ${EGL_LIBRARY})
+    target_include_directories(hummingbird PRIVATE ${EGL_INCLUDE_DIR})
+    target_compile_definitions(hummingbird PRIVATE HAVE_EGL)
+    message(STATUS "EGL found -> headless camera enabled")
+else()
+    message(STATUS "EGL not found -> headless camera disabled")
+endif()
 
 if(glfw3_FOUND AND OpenGL_FOUND)
     target_link_libraries(hummingbird PRIVATE
@@ -158,6 +390,48 @@ if(ENABLE_IPC)
     )
     target_link_directories(send_command PRIVATE ${RENOIR_LIB_DIR})
     target_link_libraries(send_command PRIVATE renoir)
+
+    add_executable(sensor_tap src/tools/sensor_tap.c)
+    target_sources(sensor_tap PRIVATE src/transport/transport_renoir.c src/transport/frame_out.c)
+    target_compile_options(sensor_tap PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_include_directories(sensor_tap PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${RENOIR_INCLUDE_DIR}
+    )
+    target_link_directories(sensor_tap PRIVATE ${RENOIR_LIB_DIR})
+    target_link_libraries(sensor_tap PRIVATE renoir m)
+    add_test(NAME importer_golden COMMAND ${CMAKE_SOURCE_DIR}/tests/importer_golden.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    add_test(NAME importer_sdf_golden COMMAND ${CMAKE_SOURCE_DIR}/tests/importer_sdf_golden.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    add_executable(test_ap_runner tests/test_ap_runner.c src/bridge/ap_runner.c src/bridge/truth.c)
+    target_include_directories(test_ap_runner PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include ${RENOIR_INCLUDE_DIR})
+    target_compile_options(test_ap_runner PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_link_libraries(test_ap_runner PRIVATE mdmodels m)
+    add_test(NAME ap_runner COMMAND test_ap_runner)
+    add_executable(test_px4_runner tests/test_px4_runner.c src/bridge/px4_runner.c src/bridge/truth.c)
+    target_include_directories(test_px4_runner PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include ${RENOIR_INCLUDE_DIR})
+    target_compile_options(test_px4_runner PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_link_libraries(test_px4_runner PRIVATE mdmodels m)
+    add_test(NAME px4_runner COMMAND test_px4_runner)
+    add_executable(test_bf_runner tests/test_bf_runner.c src/bridge/bf_runner.c src/bridge/truth.c)
+    target_include_directories(test_bf_runner PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include ${RENOIR_INCLUDE_DIR})
+    target_compile_options(test_bf_runner PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_link_libraries(test_bf_runner PRIVATE mdmodels m)
+    add_test(NAME bf_runner COMMAND test_bf_runner)
+    foreach(scn single_quad single_quadx single_quad_cf single_asl single_omav two_vehicle hexa_hover octo_hover city_survey budget_forest desert_rtk)
+        add_test(NAME scenario_smoke_${scn} COMMAND ${CMAKE_SOURCE_DIR}/tests/scenario_smoke.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} scenarios/${scn}.scn 5)
+        set_tests_properties(scenario_smoke_${scn} PROPERTIES TIMEOUT 120)
+    endforeach()
+    add_test(NAME multirotor_live COMMAND ${CMAKE_SOURCE_DIR}/tests/multirotor_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    add_test(NAME wind_live COMMAND ${CMAKE_SOURCE_DIR}/tests/wind_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    add_test(NAME sensor_profiles_live COMMAND ${CMAKE_SOURCE_DIR}/tests/sensor_profiles_live.sh ${CMAKE_BINARY_DIR})
+    add_test(NAME ardupilot_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/ardupilot_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(ardupilot_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 420 RESOURCE_LOCK sitl_bridge_ports)
+    add_test(NAME ardupilot_effects_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/ardupilot_effects_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(ardupilot_effects_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600 RESOURCE_LOCK sitl_bridge_ports)
+    add_test(NAME px4_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/px4_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(px4_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600 RESOURCE_LOCK sitl_bridge_ports)
+    add_test(NAME betaflight_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/betaflight_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(betaflight_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 RESOURCE_LOCK sitl_bridge_ports LABELS experimental)
     target_compile_definitions(send_command PRIVATE ENABLE_IPC)
 
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -178,6 +452,32 @@ if(ENABLE_IPC)
         BUILD_RPATH "${RENOIR_LIB_DIR}"
         INSTALL_RPATH "${RENOIR_LIB_DIR}"
     )
+
+    add_executable(urdf_import
+        src/urdf_import_main.c
+        src/urdf_import_io.c
+        src/urdf_import_mesh.c
+        src/urdf_import_actuators.c
+        src/urdf_import_emit.c
+        src/urdf_import_validate.c
+        src/urdf_import_xml.c
+        src/urdf_import_config.c
+        src/urdf_import_sdf.c
+    )
+    target_compile_options(urdf_import PRIVATE ${COMMON_COMPILE_OPTIONS})
+    target_include_directories(urdf_import PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${MUJOCO_DIR}/include
+    )
+    target_link_directories(urdf_import PRIVATE ${MUJOCO_DIR}/lib)
+    target_link_libraries(urdf_import PRIVATE mujoco m)
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_compile_definitions(urdf_import PRIVATE _FORTIFY_SOURCE=2)
+    endif()
+    set_target_properties(urdf_import PROPERTIES
+        BUILD_RPATH "${MUJOCO_DIR}/lib"
+        INSTALL_RPATH "${MUJOCO_DIR}/lib"
+    )
 else()
     set_target_properties(hummingbird PROPERTIES
         BUILD_RPATH "${MUJOCO_DIR}/lib"
@@ -195,6 +495,22 @@ add_custom_command(TARGET hummingbird POST_BUILD
     COMMENT "Symlinking model/ and meshes/ into build directory"
 )
 
+get_directory_property(ALL_BUILD_TARGETS BUILDSYSTEM_TARGETS)
+set(INSTRUMENTED_TARGETS "")
+foreach(tgt ${ALL_BUILD_TARGETS})
+    get_target_property(tgt_type ${tgt} TYPE)
+    if(tgt_type STREQUAL "EXECUTABLE" OR tgt_type STREQUAL "STATIC_LIBRARY")
+        list(APPEND INSTRUMENTED_TARGETS ${tgt})
+    endif()
+endforeach()
+
+if(ENABLE_COVERAGE)
+    foreach(tgt ${INSTRUMENTED_TARGETS})
+        target_compile_options(${tgt} PRIVATE --coverage -O0 -fno-inline)
+        target_link_options(${tgt} PRIVATE --coverage)
+    endforeach()
+endif()
+
 if(ENABLE_ASAN)
     set(COMMON_ASAN_COMPILE_OPTIONS
         -fsanitize=address,undefined
@@ -208,7 +524,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command)
+    foreach(tgt ${INSTRUMENTED_TARGETS})
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -218,7 +534,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command)
+    foreach(tgt ${INSTRUMENTED_TARGETS})
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
@@ -235,8 +551,27 @@ if(CLANG_TIDY)
     foreach(src ${SOURCES})
         list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/${src}")
     endforeach()
+    foreach(src ${MDMODEL_SOURCES})
+        list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/${src}")
+    endforeach()
     if(ENABLE_IPC)
-        list(APPEND TIDY_SRCS "${CMAKE_SOURCE_DIR}/src/tools/send_command.c")
+        list(APPEND TIDY_SRCS
+            "${CMAKE_SOURCE_DIR}/src/tools/send_command.c"
+            "${CMAKE_SOURCE_DIR}/src/tools/pilot_tool.c"
+            "${CMAKE_SOURCE_DIR}/src/tools/sensor_tap.c")
+    endif()
+    if(ENABLE_IPC)
+        list(APPEND TIDY_SRCS
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_main.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_io.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_mesh.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_actuators.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_emit.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_validate.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_xml.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_config.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_sdf.c"
+        )
     endif()
 
     add_custom_target(lint

@@ -1,0 +1,56 @@
+<mujoco model="mini_quad_sdf">
+  <compiler angle="radian"/>
+
+  <worldbody>
+    <body name="base_link" pos="0 0 0">
+      <inertial pos="0 0 0" mass="1" diaginertia="0.01 0.01 0.02"/>
+      <freejoint name="root"/>
+    <geom name="base_collision" size="0.1 0.1 0.025" type="box"/>
+    <site name="imu_site" pos="0 0 0"/>
+    <site name="lidar_site" pos="0 0 -0.02"/>
+    <site name="infrared_site" pos="0 0 -0.06" quat="0 1 0 0"/>
+    <body name="rotor_0" pos="0.1 0.1 0.03">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.005" diaginertia="0.0001 0.0001 1e-06"/>
+      <joint name="rotor_0_joint" pos="0 0 0" axis="0 0 1" range="-1e+16 1e+16" actuatorfrcrange="-1000 1000"/>
+      <geom name="rotor_0_collision" size="0.05 0.0025" type="cylinder"/>
+      <site name="rotor_0_joint_thrust_site" pos="0 0 0"/>
+    </body>
+    <body name="rotor_1" pos="-0.1 -0.1 0.03">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.005" diaginertia="0.0001 0.0001 1e-06"/>
+      <joint name="rotor_1_joint" pos="0 0 0" axis="0 0 1" range="-1e+16 1e+16" actuatorfrcrange="-1000 1000"/>
+      <geom name="rotor_1_collision" size="0.05 0.0025" type="cylinder"/>
+      <site name="rotor_1_joint_thrust_site" pos="0 0 0"/>
+    </body>
+    <body name="rotor_2" pos="0.1 -0.1 0.03">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.005" diaginertia="0.0001 0.0001 1e-06"/>
+      <joint name="rotor_2_joint" pos="0 0 0" axis="0 0 1" range="-1e+16 1e+16" actuatorfrcrange="-1000 1000"/>
+      <geom name="rotor_2_collision" size="0.05 0.0025" type="cylinder"/>
+      <site name="rotor_2_joint_thrust_site" pos="0 0 0"/>
+    </body>
+    <body name="rotor_3" pos="-0.1 0.1 0.03">
+      <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.005" diaginertia="0.0001 0.0001 1e-06"/>
+      <joint name="rotor_3_joint" pos="0 0 0" axis="0 0 1" range="-1e+16 1e+16" actuatorfrcrange="-1000 1000"/>
+      <geom name="rotor_3_collision" size="0.05 0.0025" type="cylinder"/>
+      <site name="rotor_3_joint_thrust_site" pos="0 0 0"/>
+    </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <general name="rotor_0_joint" site="rotor_0_joint_thrust_site" gear="0 0 1 0 0 0"/>
+    <general name="rotor_1_joint" site="rotor_1_joint_thrust_site" gear="0 0 1 0 0 0"/>
+    <general name="rotor_2_joint" site="rotor_2_joint_thrust_site" gear="0 0 1 0 0 0"/>
+    <general name="rotor_3_joint" site="rotor_3_joint_thrust_site" gear="0 0 1 0 0 0"/>
+  </actuator>
+
+  <sensor>
+    <accelerometer site="imu_site" name="imu_accel"/>
+    <gyro site="imu_site" name="imu_gyro"/>
+    <framequat objtype="site" objname="imu_site" name="orientation"/>
+    <framepos objtype="site" objname="imu_site" name="position"/>
+    <framexaxis objtype="site" objname="imu_site" name="heading"/>
+    <velocimeter site="imu_site" name="linvel"/>
+    <frameyaxis objtype="site" objname="imu_site" name="mag_y"/>
+    <framezaxis objtype="site" objname="imu_site" name="mag_z"/>
+  </sensor>
+</mujoco>

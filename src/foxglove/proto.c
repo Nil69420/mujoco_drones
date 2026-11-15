@@ -6,16 +6,26 @@
 #include <string.h>
 #include <unistd.h>
 
-int fg_send_server_info(int fd) {
+int fg_send_server_info(fg_client_t *c) {
     const char *msg =
         "{\"op\":\"serverInfo\","
         "\"name\":\"mujoco_drones\","
         "\"capabilities\":[],"
         "\"metadata\":{}}";
-    return ws_send_frame(fd, WS_OP_TEXT, msg, strlen(msg));
+    return ws_conn_enqueue(&c->conn, WS_OP_TEXT, msg, strlen(msg), NULL, 0) ? 0 : -1;
 }
 
-int fg_send_advertise(int fd, const fg_channel_t *channels, int n) {
+int fg_send_status(fg_client_t *c, int level, const char *message) {
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf), "{\"op\":\"status\",\"level\":%d,\"message\":\"%s\"}",
+                     level, message);
+    if (n <= 0 || (size_t)n >= sizeof(buf)) {
+        return -1;
+    }
+    return ws_conn_enqueue(&c->conn, WS_OP_TEXT, buf, (size_t)n, NULL, 0) ? 0 : -1;
+}
+
+int fg_send_advertise(fg_client_t *c, const fg_channel_t *channels, int n) {
     size_t need = 128;
     for (int i = 0; i < n; i++) {
         need += 512;
@@ -83,141 +93,74 @@ int fg_send_advertise(int fd, const fg_channel_t *channels, int n) {
     buf[off++] = '}';
     buf[off]   = '\0';
 
-    int rc = ws_send_frame(fd, WS_OP_TEXT, buf, (size_t)off);
+    int rc = ws_conn_enqueue(&c->conn, WS_OP_TEXT, buf, (size_t)off, NULL, 0) ? 0 : -1;
     free(buf);
     free(esc);
     return rc;
 }
 
-int fg_send_message(int fd, uint32_t sub_id, uint64_t timestamp_ns,
+int fg_send_message(fg_client_t *c, uint32_t sub_id, uint64_t timestamp_ns,
                     const void *json, size_t json_len) {
-    size_t total = 1 + 4 + 8 + json_len;
-    uint8_t *frame_buf = malloc(total);
-    if (!frame_buf) return -1;
-
-    frame_buf[0] = 0x01;
-
-    frame_buf[1] = (uint8_t)(sub_id);
-    frame_buf[2] = (uint8_t)(sub_id >> 8);
-    frame_buf[3] = (uint8_t)(sub_id >> 16);
-    frame_buf[4] = (uint8_t)(sub_id >> 24);
-
+    uint8_t head[13];
+    head[0] = 0x01;
+    head[1] = (uint8_t)(sub_id);
+    head[2] = (uint8_t)(sub_id >> 8);
+    head[3] = (uint8_t)(sub_id >> 16);
+    head[4] = (uint8_t)(sub_id >> 24);
     for (int i = 0; i < 8; i++) {
-        frame_buf[5 + i] = (uint8_t)(timestamp_ns >> (8 * i));
+        head[5 + i] = (uint8_t)(timestamp_ns >> (8 * i));
     }
-
-    memcpy(frame_buf + 13, json, json_len);
-
-    int rc = ws_send_frame(fd, WS_OP_BIN, frame_buf, total);
-    free(frame_buf);
-    return rc;
+    return ws_conn_enqueue(&c->conn, WS_OP_BIN, head, sizeof(head), json, json_len) ? 0 : 1;
 }
 
-int fg_parse_uint(const char *s, const char *key, uint32_t *out) {
-    const char *pos = strstr(s, key);
-    if (!pos) return -1;
-    pos += strlen(key);
-    while (*pos && (*pos == ':' || *pos == ' ' || *pos == '"')) pos++;
-    if (*pos < '0' || *pos > '9') return -1;
-    *out = (uint32_t)strtoul(pos, NULL, 10);
-    return 0;
-}
-
-static void fg_add_subscription(fg_client_t *client,
-                                uint32_t sub_id,
-                                uint32_t ch_id) {
-    if (ch_id == 0 || client->num_subs >= FG_MAX_SUBS) {
-        return;
-    }
-
-    client->subs[client->num_subs].sub_id     = sub_id;
-    client->subs[client->num_subs].channel_id = ch_id;
-    client->num_subs++;
-
-    fprintf(stderr,
-            "[fg_proto] subscribed: sub_id=%u channelId=%u (total=%d)\n",
-            sub_id, ch_id, client->num_subs);
-}
-
-static void fg_handle_subscribe_message(fg_client_t *client, const char *msg) {
-    const char *arr = strchr(msg, '[');
-    const char *cursor = arr ? arr + 1 : msg;
-
-    while (*cursor && *cursor != ']') {
-        const char *obj = strchr(cursor, '{');
-        if (!obj) {
-            break;
-        }
-
-        const char *obj_end = strchr(obj, '}');
-        if (!obj_end) {
-            break;
-        }
-
-        uint32_t sub_id = 0;
-        uint32_t ch_id = 0;
-        int got_sub = fg_parse_uint(obj, "\"id\"", &sub_id);
-        int got_ch  = fg_parse_uint(obj, "\"channelId\"", &ch_id);
-        if (got_sub == 0 && got_ch == 0) {
-            fg_add_subscription(client, sub_id, ch_id);
-        }
-
-        cursor = obj_end + 1;
-    }
-}
-
-static void fg_remove_subscription(fg_client_t *client, uint32_t sub_id) {
+static int fg_find_sub_id(const fg_client_t *client, uint32_t sub_id) {
     for (int i = 0; i < client->num_subs; i++) {
         if (client->subs[i].sub_id == sub_id) {
-            client->subs[i] = client->subs[--client->num_subs];
-            return;
+            return i;
         }
     }
+    return -1;
 }
 
-static void fg_handle_unsubscribe_message(fg_client_t *client, const char *msg) {
-    const char *ids = strstr(msg, "\"subscriptionIds\"");
-    if (!ids) {
-        return;
+int fg_handle_client_message(fg_client_t *client, const char *msg, size_t len,
+                             uint32_t num_channels) {
+    fg_op_t op;
+    if (fg_parse_client_op(msg, len, &op) != 0) {
+        (void)fg_send_status(client, 2, "invalid message");
+        return -1;
     }
-
-    const char *cursor = strchr(ids, '[');
-    if (!cursor) {
-        return;
-    }
-
-    cursor++;
-    while (*cursor && *cursor != ']') {
-        char *end = NULL;
-        uint32_t sub_id = (uint32_t)strtoul(cursor, &end, 10);
-        if (end == cursor) {
-            break;
+    int rc = 0;
+    if (op.kind == FG_OP_SUBSCRIBE) {
+        for (int i = 0; i < op.n_subs; i++) {
+            const fg_op_sub_t *sub = &op.subs[i];
+            if (sub->channel_id == 0 || sub->channel_id > num_channels) {
+                (void)fg_send_status(client, 2, "unknown channel");
+                rc = -1;
+            } else if (fg_find_sub_id(client, sub->id) >= 0) {
+                (void)fg_send_status(client, 2, "duplicate subscription id");
+                rc = -1;
+            } else if (client->num_subs >= FG_MAX_SUBS) {
+                (void)fg_send_status(client, 2, "too many subscriptions");
+                rc = -1;
+            } else {
+                client->subs[client->num_subs].sub_id = sub->id;
+                client->subs[client->num_subs].channel_id = sub->channel_id;
+                client->num_subs++;
+            }
         }
-
-        fg_remove_subscription(client, sub_id);
-
-        cursor = end;
-        while (*cursor == ',' || *cursor == ' ') {
-            cursor++;
+        if (op.overflow) {
+            (void)fg_send_status(client, 2, "too many entries");
+            rc = -1;
+        }
+    } else if (op.kind == FG_OP_UNSUBSCRIBE) {
+        for (int i = 0; i < op.n_unsub; i++) {
+            int at = fg_find_sub_id(client, op.unsub_ids[i]);
+            if (at >= 0) {
+                client->subs[at] = client->subs[--client->num_subs];
+            }
         }
     }
-}
-
-void fg_handle_client_message(fg_client_t *client, const char *msg,
-                              size_t len) {
-    char buf[4096];
-    size_t copy = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
-    memcpy(buf, msg, copy);
-    buf[copy] = '\0';
-
-    if (strstr(buf, "\"subscribe\"")) {
-        fg_handle_subscribe_message(client, buf);
-        return;
-    }
-
-    if (strstr(buf, "\"unsubscribe\"")) {
-        fg_handle_unsubscribe_message(client, buf);
-    }
+    return rc;
 }
 
 const fg_subscription_t *fg_find_sub(const fg_client_t *c, uint32_t ch_id) {
@@ -230,10 +173,7 @@ const fg_subscription_t *fg_find_sub(const fg_client_t *c, uint32_t ch_id) {
 }
 
 void fg_close_client(fg_client_t *c) {
-    if (c->fd >= 0) {
-        close(c->fd);
-        c->fd = -1;
-    }
+    ws_conn_close(&c->conn);
     c->alive    = false;
     c->num_subs = 0;
 }

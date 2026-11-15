@@ -1,0 +1,139 @@
+name: Verification
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RENOIR_REF: 981b95580f83c8f978444fef4d673f3bf2158fec
+  COVERAGE_MIN_LINES: "80"
+  ARDUPILOT_TAG: Copter-4.6.1
+  ARDUPILOT_COMMIT: 57591cb8235973a00004459ae441865fdb5afaf7
+
+jobs:
+  coverage:
+    name: Line coverage gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-simulator
+        with:
+          renoir-ref: ${{ env.RENOIR_REF }}
+      - uses: ./.github/actions/setup-ardupilot-sitl
+        with:
+          tag: ${{ env.ARDUPILOT_TAG }}
+          commit: ${{ env.ARDUPILOT_COMMIT }}
+      - name: Build with coverage
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_IPC=ON \
+            -DENABLE_COVERAGE=ON -DRENOIR_DIR=${{ github.workspace }}/renoir
+          cmake --build build -j"$(nproc)"
+      - name: Run the tests
+        run: ctest --test-dir build --output-on-failure -j2 --timeout 700
+      - name: Report and gate
+        run: |
+          python3 -m venv /tmp/covenv
+          /tmp/covenv/bin/pip install gcovr==8.8
+          /tmp/covenv/bin/gcovr --root . --filter 'src/' --exclude 'src/viewer.c' \
+            --exclude-unreachable-branches --exclude-throw-branches \
+            --print-summary --txt --xml-pretty --output coverage.xml \
+            --fail-under-line "$COVERAGE_MIN_LINES" build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
+          retention-days: 14
+
+  cppcheck:
+    name: cppcheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cppcheck
+      - name: Analyse the whole source tree
+        run: |
+          cppcheck --enable=all --inconclusive --check-level=exhaustive --error-exitcode=1 \
+            --suppress=missingIncludeSystem --suppress=checkersReport --suppress=unusedFunction \
+            --suppress=staticFunction --suppress=constParameterCallback --suppress=missingInclude \
+            --suppress=unmatchedSuppression --inline-suppr \
+            -Iinclude src
+
+  valgrind:
+    name: Unit tests under valgrind
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-simulator
+        with:
+          renoir-ref: ${{ env.RENOIR_REF }}
+          extra-packages: valgrind
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DENABLE_IPC=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir
+          cmake --build build -j"$(nproc)"
+      - name: Run every unit test binary under memcheck
+        run: |
+          find build -maxdepth 1 -name 'test_*' -type f -executable | sort | \
+            xargs -P4 -n1 valgrind --leak-check=full --error-exitcode=1 --gen-suppressions=all \
+              --suppressions="$PWD/tests/valgrind.supp" -q
+
+  ardupilot-sitl:
+    name: ArduCopter 4.6.1 end to end (Release)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-simulator
+        with:
+          renoir-ref: ${{ env.RENOIR_REF }}
+      - uses: ./.github/actions/setup-ardupilot-sitl
+        with:
+          tag: ${{ env.ARDUPILOT_TAG }}
+          commit: ${{ env.ARDUPILOT_COMMIT }}
+      - name: Build the simulator
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_IPC=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir
+          cmake --build build -j"$(nproc)"
+      - name: Fly the ArduPilot scenarios
+        run: ctest --test-dir build --output-on-failure -R ardupilot --timeout 700
+
+  toolchain-canary:
+    name: Latest runner image canary (lint, non-blocking)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-simulator
+        with:
+          renoir-ref: ${{ env.RENOIR_REF }}
+          extra-packages: clang-tidy cppcheck
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_IPC=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir
+      - name: clang-tidy and cppcheck on the newest toolchain
+        run: |
+          cmake --build build --target lint
+          cppcheck --enable=all --inconclusive --error-exitcode=1 --suppress=missingIncludeSystem \
+            --suppress=unusedFunction --suppress=staticFunction --suppress=constParameterCallback \
+            --suppress=missingInclude --suppress=unmatchedSuppression --suppress=checkersReport \
+            --inline-suppr -Iinclude src

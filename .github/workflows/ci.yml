@@ -6,12 +6,21 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   MUJOCO_VERSION: "3.5.0"
+  RENOIR_REF: 981b95580f83c8f978444fef4d673f3bf2158fec
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +49,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake \
-            libglfw3-dev libgl-dev \
+            libglfw3-dev libgl-dev libegl-dev \
             clang-tidy
 
       - name: Cache MuJoCo
@@ -54,9 +63,10 @@ jobs:
         if: steps.cache-mujoco.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.mujoco
-          curl -fsSL \
-            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
-            | tar xz -C ~/.mujoco
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+            -o /tmp/mujoco.tar.gz \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz"
+          tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
@@ -76,6 +86,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/renoir
+          ref: ${{ env.RENOIR_REF }}
           path: renoir
 
       - name: Build renoir
@@ -94,7 +105,21 @@ jobs:
             ${{ matrix.cmake_extra }}
 
       - name: Build
-        run: cmake --build build -j$(nproc)
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Tests
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:halt_on_error=1"
+          LSAN_OPTIONS: "suppressions=${{ github.workspace }}/tests/lsan.supp"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/tests/tsan.supp:halt_on_error=1"
+        run: |
+          cd build
+          if [[ "${{ matrix.name }}" == "TSan" ]]; then
+            ctest --output-on-failure -E "live|importer_golden"
+          else
+            ctest --output-on-failure
+          fi
 
       - name: Headless smoke run
         if: matrix.run_smoke
@@ -111,7 +136,8 @@ jobs:
           ./build/hummingbird --headless --duration 5
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     name: Static Analysis
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +147,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake \
-            libglfw3-dev libgl-dev \
+            libglfw3-dev libgl-dev libegl-dev \
             clang-tidy
 
       - name: Cache MuJoCo
@@ -135,9 +161,10 @@ jobs:
         if: steps.cache-mujoco.outputs.cache-hit != 'true'
         run: |
           mkdir -p ~/.mujoco
-          curl -fsSL \
-            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz" \
-            | tar xz -C ~/.mujoco
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+            -o /tmp/mujoco.tar.gz \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz"
+          tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
           mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
 
       - name: Install Rust
@@ -157,6 +184,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/renoir
+          ref: ${{ env.RENOIR_REF }}
           path: renoir
 
       - name: Build renoir
@@ -175,3 +203,100 @@ jobs:
 
       - name: Run clang-tidy
         run: cmake --build build --target lint
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    name: Fuzz (WebSocket parser, ArduPilot packet decoder, MAVLink parser, controller profile parser)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Build and run the fuzzer
+        run: |
+          cd fuzz
+          clang -std=c11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_ws_proto.c ../src/foxglove/ws_proto.c ../src/foxglove/ops.c \
+            ../src/foxglove/sha1.c ../src/foxglove/base64.c -o fuzz_ws_proto
+          mkdir -p corpus
+          ./fuzz_ws_proto -max_total_time=60 -timeout=5 corpus
+          clang -std=c11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_ap_servo.c ../src/bridge/ap_json.c -lm -o fuzz_ap_servo
+          mkdir -p corpus_ap
+          ./fuzz_ap_servo -max_total_time=30 -timeout=5 -max_len=100 corpus_ap
+          clang -std=c11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_mav2.c ../src/bridge/mav2.c ../src/bridge/mav_dialect.c ../src/bridge/px4_msgs.c -lm -o fuzz_mav2
+          mkdir -p corpus_mav2
+          ./fuzz_mav2 -max_total_time=30 -timeout=5 -max_len=600 corpus_mav2
+          clang -std=gnu11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
+            -I../include fuzz_pilot_profile.c ../src/pilot/pilot_profile.c ../src/pilot/pilot_core.c -lm -o fuzz_pilot
+          mkdir -p corpus_pilot
+          ./fuzz_pilot -max_total_time=30 -timeout=5 -max_len=400 corpus_pilot
+
+  foxglove-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    name: Foxglove adversarial suite
+    env:
+      MUJOCO_VERSION: "3.5.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libglfw3-dev libgl-dev libegl-dev python3-venv
+
+      - name: Cache MuJoCo
+        id: cache-mujoco
+        uses: actions/cache@v4
+        with:
+          path: ~/.mujoco/mujoco
+          key: mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64
+
+      - name: Install MuJoCo
+        if: steps.cache-mujoco.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.mujoco
+          curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+            -o /tmp/mujoco.tar.gz \
+            "https://github.com/google-deepmind/mujoco/releases/download/${{ env.MUJOCO_VERSION }}/mujoco-${{ env.MUJOCO_VERSION }}-linux-x86_64.tar.gz"
+          tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
+          mv ~/.mujoco/mujoco-${{ env.MUJOCO_VERSION }} ~/.mujoco/mujoco
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clone renoir
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/renoir
+          ref: ${{ env.RENOIR_REF }}
+          path: renoir
+
+      - name: Build renoir
+        run: |
+          cd renoir
+          cargo build --release --features c-api
+
+      - name: Build the simulator with ASan and the Foxglove bridge
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON -DENABLE_IPC=ON -DENABLE_FOXGLOVE=ON \
+            -DRENOIR_DIR=${{ github.workspace }}/renoir
+          cmake --build . -j"$(nproc)" --target hummingbird
+
+      - name: Run the adversarial suite
+        env:
+          ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1"
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install websockets
+          RENOIR_SHM_DIR=$(mktemp -d)
+          SIM_LD_PRELOAD=$(cc -print-file-name=libasan.so)
+          export RENOIR_SHM_DIR SIM_LD_PRELOAD
+          /tmp/venv/bin/python tests/foxglove_adversarial.py build/hummingbird

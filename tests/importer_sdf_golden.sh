@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+BIN_DIR=$1
+SRC_DIR=$2
+fail() { echo "FAIL: $1"; exit 1; }
+for dir in "$SRC_DIR"/tests/golden/importer_sdf/*/; do
+    name=$(basename "$dir")
+    class=$(cat "$dir/class.txt")
+    work=$(mktemp -d)
+    mkdir -p "$work/model/airframes" "$work/src/vehicle/airframes"
+    (cd "$work" && "$BIN_DIR/urdf_import" "$dir/in" "$name" --class "$class" > "$work/log.txt" 2>&1) ||
+        { cat "$work/log.txt"; fail "$name: importer exited with an error"; }
+    cmp -s "$work/model/airframes/$name/$name.xml" "$dir/$name.xml" || fail "$name: generated MJCF differs from the golden file"
+    cmp -s "$work/src/vehicle/airframes/${name}_spec.c" "$dir/${name}_spec.c" || fail "$name: generated airframe spec differs from the golden file"
+    if grep -q "warning" "$work/log.txt"; then cat "$work/log.txt"; fail "$name: an absent optional pose produced a warning"; fi
+    rm -rf "$work"
+    echo "ok $name"
+done
+
+work=$(mktemp -d)
+mkdir -p "$work/in" "$work/model/airframes" "$work/src/vehicle/airframes"
+cp "$SRC_DIR/tests/golden/importer_sdf/mini_quad_sdf/in/mini_quad_sdf.sdf" "$work/in/"
+sed 's#<pose>0.1 0.1 0.03 0 0 0</pose>#<pose>not a pose</pose>#' "$work/in/mini_quad_sdf.sdf" > "$work/in/bad.sdf.tmp"
+mv "$work/in/bad.sdf.tmp" "$work/in/mini_quad_sdf.sdf"
+(cd "$work" && "$BIN_DIR/urdf_import" in bad_pose --class rotor_multicopter > log.txt 2>&1) || { cat "$work/log.txt"; fail "an unreadable pose stopped the import"; }
+grep -q "unreadable pose 'not a pose'" "$work/log.txt" || fail "an unreadable pose was accepted silently"
+grep -q '<body name="rotor_0">' "$work/model/airframes/bad_pose/bad_pose.xml" ||
+    fail "an unreadable pose was applied instead of the identity"
+rm -rf "$work"
+
+work=$(mktemp -d)
+mkdir -p "$work/in"
+cp "$SRC_DIR/tests/golden/importer_sdf/mini_quad_sdf/in/mini_quad_sdf.sdf" "$work/in/a.sdf"
+cp "$SRC_DIR/tests/golden/importer_sdf/mini_quad_sdf/in/mini_quad_sdf.sdf" "$work/in/b.sdf"
+if (cd "$work" && "$BIN_DIR/urdf_import" in two_models >/dev/null 2>&1); then fail "two model files in one directory were accepted"; fi
+printf '<?xml version="1.0"?>\n<notamodel/>\n' > "$work/in/a.sdf"
+rm "$work/in/b.sdf"
+if (cd "$work" && "$BIN_DIR/urdf_import" in not_a_model >/dev/null 2>&1); then fail "a document that is neither URDF nor SDF was accepted"; fi
+rm -rf "$work"
+echo "PASS"

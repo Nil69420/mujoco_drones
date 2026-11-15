@@ -8,6 +8,7 @@
 #include "vehicle/localization_ops.h"
 #include "vehicle/sensor_snapshot.h"
 #include "sensors/sensors.h"
+#include "conditions/conditions.h"
 #include "setpoint.h"
 #include <mujoco/mujoco.h>
 #include <stdint.h>
@@ -21,6 +22,15 @@ typedef struct {
     estimator_t    estimator;
     localization_t localization;
     sensor_mgr_t   sensors;
+    sensor_config_t sensor_cfg;
+    wind_t wind;
+    int wind_enabled;
+    int base_body_id;
+    double drag_cd_area;
+    double ambient_temp_c;
+    double sea_level_pressure_pa;
+    double origin_alt_m;
+    int sensor_cfg_set;
     int actuator_index[VEHICLE_MAX_ACTUATOR_CHANNELS]; /* mj_name2id result per channel */
     setpoint_t target;
     uint32_t last_imu_seq;

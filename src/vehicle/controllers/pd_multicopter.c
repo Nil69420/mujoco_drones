@@ -15,8 +15,9 @@
 
 #define PD_MAX_TILT         0.20
 #define PD_MAX_ANGLE_RATE   2.0
-#define PD_MAX_ROTORS       8
-
+enum {
+    PD_MAX_ROTORS = 8,
+};
 extern const controller_ops_t pd_multicopter_ops;
 
 typedef struct {

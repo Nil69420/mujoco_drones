@@ -1,0 +1,48 @@
+name: Set up the simulator build
+description: Installs system packages and MuJoCo, then builds the pinned renoir checkout
+inputs:
+  renoir-ref:
+    description: Commit of renoir to build
+    required: true
+  mujoco-version:
+    description: MuJoCo release to install
+    default: "3.5.0"
+  extra-packages:
+    description: Additional apt packages
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake libglfw3-dev libgl-dev libegl-dev ${{ inputs.extra-packages }}
+    - name: Cache MuJoCo
+      id: cache-mujoco
+      uses: actions/cache@v4
+      with:
+        path: ~/.mujoco/mujoco
+        key: mujoco-${{ inputs.mujoco-version }}-linux-x86_64
+    - name: Install MuJoCo
+      if: steps.cache-mujoco.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p ~/.mujoco
+        curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors \
+          -o /tmp/mujoco.tar.gz \
+          "https://github.com/google-deepmind/mujoco/releases/download/${{ inputs.mujoco-version }}/mujoco-${{ inputs.mujoco-version }}-linux-x86_64.tar.gz"
+        tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
+        mv ~/.mujoco/mujoco-${{ inputs.mujoco-version }} ~/.mujoco/mujoco
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Check out renoir
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/renoir
+        ref: ${{ inputs.renoir-ref }}
+        path: renoir
+    - name: Build renoir
+      shell: bash
+      run: |
+        cd renoir
+        cargo build --release --features c-api
