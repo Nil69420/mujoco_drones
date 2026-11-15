@@ -175,7 +175,7 @@ class AltitudeHold:
 
 
 def lift_off(radio, ground):
-    for _ in range(4):
+    for _ in range(12):
         radio.channels[4] = 2000
         radio.channels[5] = 2000
         time.sleep(1.5)
