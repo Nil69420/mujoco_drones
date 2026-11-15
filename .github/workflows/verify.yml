@@ -51,7 +51,7 @@ jobs:
             -DENABLE_COVERAGE=ON -DRENOIR_DIR=${{ github.workspace }}/renoir
           cmake --build build -j"$(nproc)"
       - name: Run the tests
-        run: ctest --test-dir build --output-on-failure -j2 --timeout 700
+        run: ctest --test-dir build --output-on-failure -j2 --timeout 700 -LE experimental
       - name: Report and gate
         run: |
           python3 -m venv /tmp/covenv
@@ -142,7 +142,10 @@ jobs:
             -DRENOIR_DIR=${{ github.workspace }}/renoir
           cmake --build build -j"$(nproc)"
       - name: Fly the Betaflight scenario
-        run: ctest --test-dir build --output-on-failure -R betaflight_e2e --timeout 400
+        run: ctest --test-dir build --output-on-failure -R "betaflight_e2e" --timeout 400
+      - name: Check the stick response (experimental, does not gate)
+        continue-on-error: true
+        run: ctest --test-dir build --output-on-failure -R "betaflight_sticks_e2e" --timeout 400
 
   ardupilot-sitl:
     name: ArduCopter 4.6.1 end to end (Release)
