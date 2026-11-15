@@ -30,6 +30,7 @@ option(ENABLE_IPC "Enable IPC transport (requires renoir)" ON)
 option(ENABLE_FOXGLOVE "Enable Foxglove WebSocket bridge (requires IPC)" OFF)
 option(ENABLE_ASAN "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+option(ENABLE_COVERAGE "Instrument every target for gcov line and branch coverage" OFF)
 
 set(SOURCES
     src/main.c
@@ -419,13 +420,13 @@ if(ENABLE_IPC)
     add_test(NAME wind_live COMMAND ${CMAKE_SOURCE_DIR}/tests/wind_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     add_test(NAME sensor_profiles_live COMMAND ${CMAKE_SOURCE_DIR}/tests/sensor_profiles_live.sh ${CMAKE_BINARY_DIR})
     add_test(NAME ardupilot_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/ardupilot_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
-    set_tests_properties(ardupilot_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 420)
+    set_tests_properties(ardupilot_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 420 RESOURCE_LOCK sitl_bridge_ports)
     add_test(NAME ardupilot_effects_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/ardupilot_effects_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
-    set_tests_properties(ardupilot_effects_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600)
+    set_tests_properties(ardupilot_effects_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600 RESOURCE_LOCK sitl_bridge_ports)
     add_test(NAME px4_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/px4_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
-    set_tests_properties(px4_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600)
+    set_tests_properties(px4_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600 RESOURCE_LOCK sitl_bridge_ports)
     add_test(NAME betaflight_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/betaflight_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
-    set_tests_properties(betaflight_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 LABELS experimental)
+    set_tests_properties(betaflight_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 RESOURCE_LOCK sitl_bridge_ports LABELS experimental)
     target_compile_definitions(send_command PRIVATE ENABLE_IPC)
 
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -489,6 +490,22 @@ add_custom_command(TARGET hummingbird POST_BUILD
     COMMENT "Symlinking model/ and meshes/ into build directory"
 )
 
+get_directory_property(ALL_BUILD_TARGETS BUILDSYSTEM_TARGETS)
+set(INSTRUMENTED_TARGETS "")
+foreach(tgt ${ALL_BUILD_TARGETS})
+    get_target_property(tgt_type ${tgt} TYPE)
+    if(tgt_type STREQUAL "EXECUTABLE" OR tgt_type STREQUAL "STATIC_LIBRARY")
+        list(APPEND INSTRUMENTED_TARGETS ${tgt})
+    endif()
+endforeach()
+
+if(ENABLE_COVERAGE)
+    foreach(tgt ${INSTRUMENTED_TARGETS})
+        target_compile_options(${tgt} PRIVATE --coverage -O0 -fno-inline)
+        target_link_options(${tgt} PRIVATE --coverage)
+    endforeach()
+endif()
+
 if(ENABLE_ASAN)
     set(COMMON_ASAN_COMPILE_OPTIONS
         -fsanitize=address,undefined
@@ -502,7 +519,7 @@ if(ENABLE_ASAN)
         ASAN_OPTIONS="detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:detect_leaks=1"
         UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
     )
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_airframe_effects test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
+    foreach(tgt ${INSTRUMENTED_TARGETS})
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE ${COMMON_ASAN_COMPILE_OPTIONS})
             target_link_options(${tgt} PRIVATE ${COMMON_ASAN_LINK_OPTIONS})
@@ -512,7 +529,7 @@ if(ENABLE_ASAN)
 endif()
 
 if(ENABLE_TSAN)
-    foreach(tgt hummingbird send_command sensor_tap urdf_import mdmodels test_conditions test_imu_model test_gnss_model test_misc_models test_airframe_effects test_ws_proto test_fg_ops test_camera_model test_biomes test_kf_ins test_cli test_import_config test_serialize test_ap_json test_ap_map test_ap_link test_ap_frames test_ap_runner test_mav2 test_px4_sensors test_px4_link test_px4_runner test_bf_packets test_bf_runner test_pilot test_pilot_evdev pilot_tool)
+    foreach(tgt ${INSTRUMENTED_TARGETS})
         if(TARGET ${tgt})
             target_compile_options(${tgt} PRIVATE
                 -fsanitize=thread
