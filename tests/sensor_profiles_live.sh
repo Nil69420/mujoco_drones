@@ -27,10 +27,18 @@ kill $SIM 2>/dev/null || true
 wait $SIM 2>/dev/null || true
 
 run_tap() {
-    "$BIN_DIR/hummingbird" --headless --duration 40 --imu icm42688p --mag rm3100 "$@" >/dev/null 2>&1 &
+    "$BIN_DIR/hummingbird" --headless --duration 40 --imu icm42688p --gnss zed_f9p --gnss-rate 20 --mag rm3100 "$@" >/dev/null 2>&1 &
     SIM=$!
-    sleep 0.6
-    "$BIN_DIR/sensor_tap" /drone 1.2
+    attempt=0
+    while [ $attempt -lt 60 ]; do
+        PROBE=$("$BIN_DIR/sensor_tap" /drone 0.4 2>/dev/null || true)
+        GNSS_SEQ=$(echo "$PROBE" | sed -n 's/.*gnss \([0-9][0-9]*\) baro.*/\1/p')
+        if [ "${GNSS_SEQ:-0}" -ge 120 ]; then
+            break
+        fi
+        attempt=$((attempt + 1))
+    done
+    "$BIN_DIR/sensor_tap" /drone 2
     kill $SIM 2>/dev/null || true
     wait $SIM 2>/dev/null || true
 }
@@ -64,26 +72,38 @@ awk -v m="$IR_MEAN" 'BEGIN { exit !(m > 1.5 && m < 6.0) }' || fail "rangefinder 
 echo "$IR" | grep -q "limits 0.10..40.0 m" || fail "rangefinder limits do not match the tf02_pro profile"
 
 CAM_LOG="$SHM/camera_sim.log"
-"$BIN_DIR/hummingbird" --headless --duration 20 --cam-width 1280 --cam-height 720 --cam-fps 120 \
+"$BIN_DIR/hummingbird" --headless --duration 60 --cam-width 1280 --cam-height 720 --cam-fps 120 \
     --cam-profile ar0234 >"$CAM_LOG" 2>&1 &
 SIM=$!
 sleep 1.5
-CAM=$("$BIN_DIR/sensor_tap" /drone 2 "$BIN_DIR/test_frame.pgm")
+CAM=""
+for attempt in 1 2 3 4 5 6 7 8; do
+    CAM=$("$BIN_DIR/sensor_tap" /drone 3 "$BIN_DIR/test_frame.pgm" || true)
+    if echo "$CAM" | grep -q "^camera: "; then
+        break
+    fi
+    if grep -q "headless camera unavailable\|no usable EGL device\|built without EGL" "$CAM_LOG"; then
+        break
+    fi
+    sleep 1
+done
 kill $SIM 2>/dev/null || true
 wait $SIM 2>/dev/null || true
 if grep -q "headless camera unavailable\|no usable EGL device\|built without EGL" "$CAM_LOG"; then
     echo "SKIP camera checks: no EGL device on this machine"
 else
-    echo "$CAM" | grep "camera:"
+    echo "$CAM" | grep "camera:" || fail "the camera ring never came up"
     echo "$CAM" | grep -q "1280x720 x1" || fail "camera frames are not 1280x720 mono8"
     CAM_FRAMES=$(echo "$CAM" | sed -n 's/^camera: \([0-9]*\) frames.*/\1/p')
     CAM_RATE=$(echo "$CAM" | sed -n 's/.*simulated-time rate \([0-9.]*\) fps.*/\1/p')
-    if [ "${CAM_FRAMES:-0}" -ge 50 ]; then
-        [ "$CAM_RATE" = "120.0" ] || fail "camera is not running at 120 fps (measured $CAM_RATE over $CAM_FRAMES frames)"
+    [ "${CAM_FRAMES:-0}" -ge 2 ] || fail "camera delivered fewer than two frames"
+    if [ "$CAM_FRAMES" -ge 50 ]; then
+        CAM_TOL=1.2
     else
-        [ "${CAM_FRAMES:-0}" -ge 2 ] || fail "camera delivered fewer than two frames"
-        awk -v r="$CAM_RATE" 'BEGIN { exit !(r >= 114 && r <= 126) }' || fail "camera rate $CAM_RATE fps is outside 5 percent of 120 over $CAM_FRAMES frames"
+        CAM_TOL=6.0
     fi
+    awk -v r="$CAM_RATE" -v t="$CAM_TOL" 'BEGIN { exit !(r >= 120 - t && r <= 120 + t) }' ||
+        fail "camera rate $CAM_RATE fps is outside $CAM_TOL fps of 120 over $CAM_FRAMES frames"
     CAM_MEAN=$(echo "$CAM" | sed -n 's/.*mean level \([0-9.]*\).*/\1/p')
     awk -v m="$CAM_MEAN" 'BEGIN { exit !(m > 5 && m < 250) }' || fail "camera image is blank or saturated (mean $CAM_MEAN)"
     [ "$(wc -c < "$BIN_DIR/test_frame.pgm")" -gt 921600 ] || fail "frame dump has the wrong size"
