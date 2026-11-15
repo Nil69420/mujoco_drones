@@ -2,6 +2,7 @@
 #include "vehicle/assembly_config.h"
 
 #include <ctype.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,8 +114,46 @@ static const number_field_t NUMBER_FIELDS[] = {
     {"bridge_speed", offsetof(vehicle_assembly_spec_t, bridge_speed)},
 };
 
+static int parse_effect(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, const char *key,
+                        const char *value, int *handled) {
+    static const struct {
+        const char *key;
+        size_t offset;
+    } FIELDS[] = {
+        {"fx_accel_deficit", offsetof(airframe_effects_params_t, accel_thrust_deficit_mps2)},
+        {"fx_baro_lag", offsetof(airframe_effects_params_t, baro_lag_s)},
+        {"fx_cam_drop", offsetof(airframe_effects_params_t, camera_drop_probability)},
+        {"fx_cam_shift", offsetof(airframe_effects_params_t, camera_time_shift_s)},
+    };
+    for (unsigned idx = 0; idx < sizeof(FIELDS) / sizeof(FIELDS[0]); idx++) {
+        if (strcmp(key, FIELDS[idx].key) != 0) {
+            continue;
+        }
+        char *end = NULL;
+        double number = strtod(value, &end);
+        if (end == value || *end != '\0' || !isfinite(number)) {
+            fprintf(stderr, "%s:%d: %s needs a finite number\n", ctx->path, ctx->line, key);
+            return -1;
+        }
+        *(double *)(void *)((char *)&veh->effects + FIELDS[idx].offset) = number;
+        veh->effects.provenance = PROVENANCE_ASSUMED;
+        veh->effects_mask |= 1U << idx;
+        *handled = 1;
+        return 0;
+    }
+    return 0;
+}
+
 static int handle_vehicle_flag(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, const char *key,
                                const char *value, int *handled) {
+    *handled = 0;
+    if (parse_effect(ctx, veh, key, value, handled) != 0) {
+        *handled = 1;
+        return -1;
+    }
+    if (*handled) {
+        return 0;
+    }
     *handled = 1;
     if (strcmp(key, "gnss_rtk") == 0) {
         veh->gnss_rtk = strcmp(value, "true") == 0 || strcmp(value, "1") == 0;
@@ -264,6 +303,16 @@ int scenario_load(const char *path, scenario_t *out) {
     }
     fclose(f);
 
+    for (int idx = 0; idx < out->vehicle_count; idx++) {
+        unsigned mask = out->vehicles[idx].effects_mask;
+        if (mask != 0 && mask != ASSEMBLY_FX_ALL) {
+            fprintf(stderr,
+                    "%s: vehicle %s: airframe effects have no defaults, give all of fx_accel_deficit, "
+                    "fx_baro_lag, fx_cam_drop and fx_cam_shift\n",
+                    path, out->vehicles[idx].id);
+            return -1;
+        }
+    }
     if (!state.have_scenario) {
         fprintf(stderr, "scenario: missing required [scenario] section\n");
         return -1;

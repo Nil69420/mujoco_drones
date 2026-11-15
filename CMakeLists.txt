@@ -297,6 +297,12 @@ target_compile_options(test_cli PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_cli PRIVATE mdmodels)
 add_test(NAME cli COMMAND test_cli)
 
+add_executable(test_scenario_effects tests/test_scenario_effects.c src/vehicle/assembly_config.c)
+target_include_directories(test_scenario_effects PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(test_scenario_effects PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_scenario_effects PRIVATE mdmodels m)
+add_test(NAME scenario_effects COMMAND test_scenario_effects)
+
 add_executable(test_serialize tests/test_serialize.c src/foxglove/serialize.c src/foxglove/base64.c)
 target_include_directories(test_serialize PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(test_serialize PRIVATE ${COMMON_COMPILE_OPTIONS})

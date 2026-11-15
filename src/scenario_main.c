@@ -166,6 +166,7 @@ static int build_vehicles(scenario_t *scenario, const mjModel *model,
         veh->sensor_cfg.range_profile = as->rangefinder[0] != '\0' ? as->rangefinder : NULL;
         veh->sensor_cfg.mag_profile = as->mag[0] != '\0' ? as->mag : NULL;
         veh->sensor_cfg.vibration_scale = as->vibration;
+        veh->sensor_cfg.effects = as->effects_mask != 0 ? &as->effects : NULL;
         {
             const conditions_profile_t *cp = veh->sensor_cfg.weather != NULL
                                                  ? conditions_find(veh->sensor_cfg.weather) : NULL;

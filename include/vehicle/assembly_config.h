@@ -1,7 +1,9 @@
 #ifndef MUJOCO_DRONES_VEHICLE_ASSEMBLY_CONFIG_H
 #define MUJOCO_DRONES_VEHICLE_ASSEMBLY_CONFIG_H
 
-enum { ASSEMBLY_MAX_NAME_LEN = 64 };
+#include "sensors/models/airframe_effects.h"
+
+enum { ASSEMBLY_MAX_NAME_LEN = 64, ASSEMBLY_FX_ALL = 0xF };
 
 typedef struct {
     char id[ASSEMBLY_MAX_NAME_LEN];              /* e.g. "drone0" -> prefix "drone0_" */
@@ -26,6 +28,8 @@ typedef struct {
     int gnss_cold_start;
     int gnss_rtk;
     double drag_area;
+    airframe_effects_params_t effects;
+    unsigned effects_mask;
 } vehicle_assembly_spec_t;
 
 #endif
