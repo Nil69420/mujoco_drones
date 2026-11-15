@@ -71,7 +71,10 @@ int imp_read_file(const char *path, char **out, size_t *out_len) {
         fclose(f);
         return -1;
     }
-    rewind(f);
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return -1;
+    }
     char *buf = malloc((size_t)sz + 1);
     if (!buf) {
         fclose(f);

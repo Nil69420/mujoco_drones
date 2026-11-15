@@ -97,11 +97,14 @@ static const bridge_ops_t BRIDGES[] = {
      BF_RUNNER_EXCHANGED, BF_RUNNER_FAILED},
 };
 
-static volatile sig_atomic_t g_stop = 0;
+static volatile sig_atomic_t *stop_flag(void) {
+    static volatile sig_atomic_t flag = 0;
+    return &flag;
+}
 
 static void on_signal(int signo) {
     (void)signo;
-    g_stop = 1;
+    *stop_flag() = 1;
 }
 
 static void install_handlers(void) {
@@ -178,7 +181,7 @@ static void pace(double sim_time_s, double start_s, double speed) {
 static void log_state(const vehicle_t *vehicle, const mjModel *model, const mjData *data,
                       const double origin[3]) {
     (void)model;
-    int body = vehicle->base_body_id;
+    size_t body = (size_t)vehicle->base_body_id;
     double yaw_deg = atan2(data->xmat[9 * body + 3], data->xmat[9 * body]) * 57.29577951308232;
     (void)fprintf(stderr, "[bridge] t=%.3f pos=(%.3f %.3f %.3f) yaw=%.1f\n", data->time,
                   data->xpos[3 * body] - origin[0], data->xpos[3 * body + 1] - origin[1],
@@ -198,9 +201,9 @@ static int bridge_loop(const bridge_ops_t *ops, void *runner, scenario_t *scenar
     bool have_origin = false;
     double start_wall_s = 0.0;
     double start_sim_s = 0.0;
-    g_stop = 0;
+    *stop_flag() = 0;
     install_handlers();
-    while (data->time < scenario->duration_s && g_stop == 0) {
+    while (data->time < scenario->duration_s && *stop_flag() == 0) {
         int status = ops->exchange(runner, &vehicles[bridged], model, data, bridge_tick, &ctx,
                                    EXCHANGE_TIMEOUT_MS);
         if (status == ops->failed) {

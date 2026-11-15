@@ -16,11 +16,14 @@
 
 enum { MAX_DEVICES = 16, PROFILE_TEXT_BYTES = 4096, TICK_MS = 10, PRINT_EVERY = 10 };
 
-static volatile sig_atomic_t g_stop = 0;
+static volatile sig_atomic_t *stop_flag(void) {
+    static volatile sig_atomic_t flag = 0;
+    return &flag;
+}
 
 static void on_signal(int signo) {
     (void)signo;
-    g_stop = 1;
+    *stop_flag() = 1;
 }
 
 static double now_seconds(void) {
@@ -109,7 +112,7 @@ static int open_device(const char *path, const char *profile_file, pilot_t *pilo
     pilot_device_info_t info;
     int fd = pilot_evdev_open(path, pilot, &info);
     if (fd < 0) {
-        (void)fprintf(stderr, "cannot open %s (%s)\n", path, strerror(errno));
+        (void)fprintf(stderr, "cannot open %s (errno %d)\n", path, errno);
         return -1;
     }
     if (profile_file != NULL) {
@@ -139,7 +142,7 @@ static int run_loop(int fd, pilot_t *pilot, int udp_fd, const struct sockaddr_in
     double last = now_seconds();
     double start = last;
     int tick = 0;
-    while (g_stop == 0) {
+    while (*stop_flag() == 0) {
         struct pollfd pfd = {fd, POLLIN, 0};
         (void)poll(&pfd, 1, TICK_MS);
         int events = 0;
@@ -209,7 +212,7 @@ static void wait_for_enter(int fd, pilot_t *pilot) {
         if ((pfds[1].revents & POLLIN) != 0) {
             char line[64];
             if (fgets(line, sizeof(line), stdin) == NULL) {
-                g_stop = 1;
+                *stop_flag() = 1;
             }
             return;
         }
@@ -226,7 +229,7 @@ static int learn_axis(int fd, pilot_t *pilot, const char *prompt, uint16_t *used
     memcpy(start, pilot->value, sizeof(start));
     wait_for_enter(fd, pilot);
     memcpy(end, pilot->value, sizeof(end));
-    if (g_stop != 0 || pilot_calibrate_pick(pilot, start, end, used, *used_count, code, invert) != 0) {
+    if (*stop_flag() != 0 || pilot_calibrate_pick(pilot, start, end, used, *used_count, code, invert) != 0) {
         (void)printf("no stick movement detected\n");
         return -1;
     }
