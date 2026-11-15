@@ -14,7 +14,7 @@ enum {
 typedef struct foxglove_bridge foxglove_bridge_t;
 
 foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port);
-int foxglove_start(foxglove_bridge_t *bridge);
-void foxglove_destroy(foxglove_bridge_t *bridge);
+int foxglove_start(foxglove_bridge_t *br);
+void foxglove_destroy(foxglove_bridge_t *br);
 
 #endif

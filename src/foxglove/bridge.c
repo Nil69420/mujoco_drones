@@ -5,6 +5,7 @@
 #include "foxglove/ws.h"
 #include "sensors/sensor_types.h"
 
+#include <stdbool.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -163,6 +164,7 @@ enum {
     NUM_DRONE_TOPICS = (int)(sizeof(DRONE_TOPICS) / sizeof(DRONE_TOPICS[0])),
     DRONE_TOPIC_CAM_RGB_IDX = 6,
 };
+_Static_assert(NUM_DRONE_TOPICS - FG_MAX_CHANNELS <= 0, "the drone topic table exceeds the channel limit");
 
 static bool bridge_validate_camera_rgb(const uint8_t *msg_buf,
                                        size_t msg_len,
@@ -487,18 +489,21 @@ static void *bridge_thread(void *arg) {
     while (atomic_load(&br->running)) {
         struct pollfd pfds[1 + FG_MAX_PENDING + FG_MAX_CLIENTS];
         int owner[1 + FG_MAX_PENDING + FG_MAX_CLIENTS];
+        bool is_pending[1 + FG_MAX_PENDING + FG_MAX_CLIENTS];
         int nfds = 0;
 
         pfds[nfds].fd     = br->listen_fd;
         pfds[nfds].events = POLLIN;
         owner[nfds]       = -1;
+        is_pending[nfds]  = false;
         nfds++;
 
         for (int i = 0; i < FG_MAX_PENDING; i++) {
             if (br->pending[i].fd >= 0) {
                 pfds[nfds].fd     = br->pending[i].fd;
                 pfds[nfds].events = POLLIN;
-                owner[nfds]       = 1000 + i;
+                owner[nfds]       = i;
+                is_pending[nfds]  = true;
                 nfds++;
             }
         }
@@ -507,6 +512,7 @@ static void *bridge_thread(void *arg) {
                 pfds[nfds].fd     = br->clients[i].conn.fd;
                 pfds[nfds].events = (short)(POLLIN | (ws_conn_pending(&br->clients[i].conn) ? POLLOUT : 0));
                 owner[nfds]       = i;
+                is_pending[nfds]  = false;
                 nfds++;
             }
         }
@@ -518,11 +524,11 @@ static void *bridge_thread(void *arg) {
                 bridge_accept_connections(br);
             }
             for (int k = 1; k < nfds; k++) {
-                if (owner[k] >= 1000) {
+                if (is_pending[k]) {
                     if (pfds[k].revents & (POLLIN | POLLHUP | POLLERR)) {
-                        bridge_handle_pending(br, owner[k] - 1000);
+                        bridge_handle_pending(br, owner[k]);
                     }
-                } else if (br->clients[owner[k]].alive &&
+                } else if (owner[k] >= 0 && owner[k] < FG_MAX_CLIENTS && br->clients[owner[k]].alive &&
                            (pfds[k].revents & (POLLIN | POLLHUP | POLLERR))) {
                     bridge_handle_client_data(br, owner[k]);
                 }
@@ -591,10 +597,7 @@ foxglove_bridge_t *foxglove_create(transport_t *tp, uint16_t port) {
         br->pending[i].fd = -1;
     }
 
-    int num_drone_topics = NUM_DRONE_TOPICS;
-    int max_channels = FG_MAX_CHANNELS;
-    int topic_count = num_drone_topics < max_channels ?
-                      num_drone_topics : max_channels;
+    const int topic_count = NUM_DRONE_TOPICS;
     for (int i = 0; i < topic_count; i++) {
         br->channels[i].id          = (uint32_t)(i + 1);
         br->channels[i].topic       = DRONE_TOPICS[i].topic;
