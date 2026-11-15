@@ -158,11 +158,16 @@ static int parse_pose(const char *text, double out[6]) {
 
 static void emit_pose_origin(sb_t *sb, const char *pose_text) {
     double vals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    if (parse_pose(pose_text, vals) != 0) {
-        fprintf(stderr,
-                "urdf_import: SDF: warning: unreadable pose '%s'; using "
-                "identity\n",
-                pose_text ? pose_text : "(null)");
+    double parsed[6];
+    if (pose_text != NULL) {
+        if (parse_pose(pose_text, parsed) == 0) {
+            memcpy(vals, parsed, sizeof(vals));
+        } else {
+            fprintf(stderr,
+                    "urdf_import: SDF: warning: unreadable pose '%s'; using "
+                    "identity\n",
+                    pose_text);
+        }
     }
     sb_printf(sb, "<origin xyz=\"%g %g %g\" rpy=\"%g %g %g\"/>", vals[0], vals[1], vals[2], vals[3],
               vals[4], vals[5]);

@@ -9,6 +9,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static int has_suffix(const char *name, const char *suffix) {
+    size_t name_len = strlen(name);
+    size_t suffix_len = strlen(suffix);
+    return name_len >= suffix_len && strcmp(name + name_len - suffix_len, suffix) == 0;
+}
+
 int imp_find_model_file(const char *dir, char *out, size_t out_sz) {
     DIR *d = opendir(dir);
     if (!d) {
@@ -28,9 +34,7 @@ int imp_find_model_file(const char *dir, char *out, size_t out_sz) {
         if (stat(full, &st) != 0 || !S_ISREG(st.st_mode)) {
             continue;
         }
-        size_t len = strlen(ent->d_name);
-        const char *ext = len >= 5 ? ent->d_name + len - 5 : "";
-        if (strcmp(ext, ".urdf") != 0 && strcmp(ext, ".sdf") != 0) {
+        if (!has_suffix(ent->d_name, ".urdf") && !has_suffix(ent->d_name, ".sdf")) {
             continue;
         }
         if (found) {
