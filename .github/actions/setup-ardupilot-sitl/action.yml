@@ -15,7 +15,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/ardupilot-sitl
-        key: sitl-${{ inputs.commit }}-v1
+        key: sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v2
     - name: Build ArduCopter SITL
       if: steps.cache-sitl.outputs.cache-hit != 'true'
       shell: bash
