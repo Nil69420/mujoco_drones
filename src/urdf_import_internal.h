@@ -36,7 +36,7 @@ mjModel *imp_finalize_and_compile(mjSpec *spec, const char *final_path, mesh_tab
                                      char **urdf_text);
 int imp_finalize_spec(mjSpec *spec);
 int imp_find_model_file(const char *dir, char *out, size_t out_sz);
-int imp_inject_actuators(mjSpec *spec, actuator_config_t *cfg);
+int imp_inject_actuators(mjSpec *spec, const actuator_config_t *cfg);
 void imp_mesh_table_free(mesh_table_t *t);
 int imp_parse_vec3(const char *s, double out[3]);
 int imp_read_file(const char *path, char **out, size_t *out_len);

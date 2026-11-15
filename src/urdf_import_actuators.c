@@ -137,7 +137,7 @@ static void warn_unmatched(const actuator_config_t *cfg) {
     }
 }
 
-int imp_inject_actuators(mjSpec *spec, actuator_config_t *cfg) {
+int imp_inject_actuators(mjSpec *spec, const actuator_config_t *cfg) {
     int count = 0;
     for (mjsElement *elem = mjs_firstElement(spec, mjOBJ_JOINT); elem;
          elem = mjs_nextElement(spec, elem)) {

@@ -201,7 +201,6 @@ static int bridge_loop(const bridge_ops_t *ops, void *runner, scenario_t *scenar
     bool have_origin = false;
     double start_wall_s = 0.0;
     double start_sim_s = 0.0;
-    *stop_flag() = 0;
     install_handlers();
     while (data->time < scenario->duration_s && *stop_flag() == 0) {
         int status = ops->exchange(runner, &vehicles[bridged], model, data, bridge_tick, &ctx,
