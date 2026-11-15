@@ -194,7 +194,9 @@ typedef struct {
 } scan_state_t;
 
 static void copy_name(char *dst, size_t cap, const char *src) {
-    snprintf(dst, cap, "%.*s", (int)(cap - 1), src);
+    size_t length = strnlen(src, cap - 1);
+    memcpy(dst, src, length);
+    dst[length] = '\0';
 }
 
 static void scan_link(scan_state_t *st, const xml_element_t *elem) {
@@ -223,9 +225,14 @@ static void scan_root_inertia(scan_state_t *st, const xml_element_t *elem) {
     const char *iyy = xml_attr(elem, "iyy");
     const char *izz = xml_attr(elem, "izz");
     if (ixx && iyy && izz && st->root_inertia_text[0] == '\0') {
-        int width = (int)(sizeof(st->root_inertia_text) / 3 - 1);
-        snprintf(st->root_inertia_text, sizeof(st->root_inertia_text), "%.*s %.*s %.*s", width, ixx,
-                 width, iyy, width, izz);
+        enum { INERTIA_TOKEN_BYTES = INERTIA_TEXT_BYTES / 3 };
+        char xx[INERTIA_TOKEN_BYTES];
+        char yy[INERTIA_TOKEN_BYTES];
+        char zz[INERTIA_TOKEN_BYTES];
+        copy_name(xx, sizeof(xx), ixx);
+        copy_name(yy, sizeof(yy), iyy);
+        copy_name(zz, sizeof(zz), izz);
+        snprintf(st->root_inertia_text, sizeof(st->root_inertia_text), "%s %s %s", xx, yy, zz);
     }
 }
 
