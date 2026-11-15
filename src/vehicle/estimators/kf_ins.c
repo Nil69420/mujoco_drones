@@ -8,8 +8,10 @@
 
 #define KF_G 9.80665
 #define KF_R_EARTH 6371000.0
-#define KF_HISTORY 512
-#define KF_MIN_SATS 6
+enum {
+    KF_HISTORY = 512,
+    KF_MIN_SATS = 6,
+};
 #define KF_FIELD_MIN_UT 5.0
 #define KF_ACC_GAIN 0.6
 #define KF_MAG_GAIN 0.25

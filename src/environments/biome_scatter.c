@@ -7,9 +7,10 @@
 
 #define CLEAR_RADIUS_M 20.0
 #define EDGE_MARGIN_M 6.0
-#define PLACE_ATTEMPTS 40
-#define MAX_LATTICE 96
-
+enum {
+    PLACE_ATTEMPTS = 40,
+    MAX_LATTICE = 96,
+};
 typedef struct {
     mjsBody *world;
     const biome_profile_t *profile;

@@ -6,8 +6,9 @@
 #define TWO_PI 6.28318530717958647692
 #define NYQUIST_GUARD 0.45
 #define MAX_MOUNT_SUBSTEP 0.2
-#define MAX_SUBSTEPS 64
-
+enum {
+    MAX_SUBSTEPS = 64,
+};
 int vibration_init(vibration_t *vib, int rotors, int blades, double rated_rpm,
                    double imbalance_accel_ms2, double mount_hz, double mount_zeta,
                    uint64_t seed) {
