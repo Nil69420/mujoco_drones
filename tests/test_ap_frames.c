@@ -45,6 +45,21 @@ static void test_quaternion_branches(void) {
     check_round_trip(tilted);
 }
 
+static void test_imu_overlay(void) {
+    ap_state_t state;
+    memset(&state, 0, sizeof(state));
+    const double gyro[3] = {0.1, 0.2, 0.3};
+    const double accel[3] = {1.0, 2.0, 9.5};
+    ap_state_overlay_imu(&state, gyro, accel);
+    CHECK_NEAR(state.gyro_rps[0], 0.1, 1e-15);
+    CHECK_NEAR(state.gyro_rps[1], -0.2, 1e-15);
+    CHECK_NEAR(state.gyro_rps[2], -0.3, 1e-15);
+    CHECK_NEAR(state.accel_body_mps2[0], 1.0, 1e-15);
+    CHECK_NEAR(state.accel_body_mps2[1], -2.0, 1e-15);
+    CHECK_NEAR(state.accel_body_mps2[2], -9.5, 1e-15);
+    CHECK(state.timestamp_s == 0.0 && state.position_ned_m[2] == 0.0);
+}
+
 static ap_truth_t base_truth(void) {
     ap_truth_t truth;
     memset(&truth, 0, sizeof(truth));
@@ -103,6 +118,7 @@ static void test_facing_north_is_identity(void) {
 
 int main(void) {
     test_quaternion_branches();
+    test_imu_overlay();
     test_heading_and_vectors();
     test_facing_north_is_identity();
     if (g_failures != 0) {

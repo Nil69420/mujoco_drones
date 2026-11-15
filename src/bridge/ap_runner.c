@@ -85,6 +85,10 @@ int ap_runner_exchange(ap_runner_t *runner, const vehicle_t *vehicle, const mjMo
     ap_truth_t truth;
     bridge_read_truth(vehicle, model, data, runner->origin_enu, &truth);
     ap_truth_to_state(&truth, &runner->last_state);
+    const sensor_mgr_t *mgr = &vehicle->sensors;
+    if (mgr->config.enable.imu && mgr->use_imu_model && mgr->imu_latest.header.sequence != 0) {
+        ap_state_overlay_imu(&runner->last_state, mgr->imu_latest.gyro, mgr->imu_latest.accel);
+    }
     runner->last_frame = frame.frame_count;
     runner->have_last = true;
     return ap_link_send_state(runner->link, &runner->last_state) == 0 ? AP_RUNNER_EXCHANGED

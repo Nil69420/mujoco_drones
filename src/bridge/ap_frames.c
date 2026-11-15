@@ -58,6 +58,12 @@ static void flu_to_frd(const double flu[3], double frd[3]) {
     frd[2] = -flu[2];
 }
 
+void ap_state_overlay_imu(ap_state_t *state, const double gyro_flu_rps[3],
+                          const double accel_flu_mps2[3]) {
+    flu_to_frd(gyro_flu_rps, state->gyro_rps);
+    flu_to_frd(accel_flu_mps2, state->accel_body_mps2);
+}
+
 void ap_truth_to_state(const ap_truth_t *truth, ap_state_t *out) {
     double rel[3];
     for (int i = 0; i < 3; i++) {
