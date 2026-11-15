@@ -92,6 +92,67 @@ static int run_headless(sim_t *sim, double duration) {
     return 0;
 }
 
+#ifdef ENABLE_IPC
+static void build_sensor_config(const cli_args_t *args, sensor_config_t *scfg,
+                                airframe_effects_params_t *effects) {
+    *scfg = sensor_default_config();
+    scfg->lidar_num_rays = (uint16_t)args->lidar_rays;
+
+#ifdef ENABLE_FOXGLOVE
+    apply_camera_cap(args->cam_w, args->cam_h, scfg);
+#else
+    scfg->camera_width  = (uint16_t)args->cam_w;
+    scfg->camera_height = (uint16_t)args->cam_h;
+#endif
+    scfg->camera_rate    = args->cam_fps;
+    scfg->imu_profile    = args->imu_name;
+    scfg->gnss_profile   = args->gnss_name;
+    scfg->gnss_cold_start = args->gnss_cold;
+    scfg->rtk_corrections = args->gnss_rtk ? 1 : 0;
+    scfg->baro_profile   = args->baro_name;
+    scfg->mag_profile    = args->mag_name;
+    scfg->range_profile  = args->range_name;
+    scfg->infrared_rate  = args->ir_rate;
+    scfg->mag_rate       = args->mag_rate;
+    scfg->weather        = args->weather;
+    scfg->vibration_scale = args->vibration;
+    scfg->imu_rate       = args->imu_rate;
+    scfg->gnss_rate      = args->gnss_rate;
+    scfg->baro_rate      = args->baro_rate;
+        if (!isnan(args->fx_accel_deficit)) {
+        effects->accel_thrust_deficit_mps2 = args->fx_accel_deficit;
+        effects->baro_lag_s = args->fx_baro_lag;
+        effects->camera_drop_probability = args->fx_cam_drop;
+        effects->camera_time_shift_s = args->fx_cam_shift;
+        effects->provenance = PROVENANCE_ASSUMED;
+        scfg->effects = effects;
+    }
+
+    scfg->camera_profile = args->cam_profile;
+    scfg->camera_mono    = args->cam_mono;
+    scfg->camera_headless = args->headless;
+#ifdef ENABLE_FOXGLOVE
+    scfg->camera_legacy_topic = true;
+#endif
+    if (args->headless && !args->cam_mono) {
+        scfg->enable.camera = false;
+    }
+#ifndef ENABLE_FOXGLOVE
+    if (!args->headless) {
+        fprintf(stderr, "[main] WARNING: camera stream disabled "
+                        "(no Foxglove bridge to consume it)\n");
+        scfg->enable.camera = false;
+    }
+#endif
+}
+
+static bool sensors_requested(const cli_args_t *args) {
+    return args->imu_name != NULL || args->gnss_name != NULL || args->baro_name != NULL ||
+           args->mag_name != NULL || args->range_name != NULL || args->weather != NULL ||
+           args->vibration > 0.0 || args->cam_mono || !isnan(args->fx_accel_deficit);
+}
+#endif
+
 int main(int argc, char **argv) {
     cli_args_t args = {0};
     int parse_rc = cli_parse(argc, argv, &args);
@@ -149,63 +210,14 @@ int main(int argc, char **argv) {
             fprintf(stderr, "ERROR: failed to initialize IPC transport\n");
             sim.ipc_enabled = false;
         } else {
-            sensor_config_t scfg = sensor_default_config();
-            scfg.lidar_num_rays = (uint16_t)args.lidar_rays;
-
-#ifdef ENABLE_FOXGLOVE
-            apply_camera_cap(args.cam_w, args.cam_h, &scfg);
-#else
-            scfg.camera_width  = (uint16_t)args.cam_w;
-            scfg.camera_height = (uint16_t)args.cam_h;
-#endif
-            scfg.camera_rate    = args.cam_fps;
-            scfg.imu_profile    = args.imu_name;
-            scfg.gnss_profile   = args.gnss_name;
-            scfg.gnss_cold_start = args.gnss_cold;
-            scfg.rtk_corrections = args.gnss_rtk ? 1 : 0;
-            scfg.baro_profile   = args.baro_name;
-            scfg.mag_profile    = args.mag_name;
-            scfg.range_profile  = args.range_name;
-            scfg.infrared_rate  = args.ir_rate;
-            scfg.mag_rate       = args.mag_rate;
-            scfg.weather        = args.weather;
-            scfg.vibration_scale = args.vibration;
-            scfg.imu_rate       = args.imu_rate;
-            scfg.gnss_rate      = args.gnss_rate;
-            scfg.baro_rate      = args.baro_rate;
+            sensor_config_t scfg;
             airframe_effects_params_t effects;
-            if (!isnan(args.fx_accel_deficit)) {
-                effects.accel_thrust_deficit_mps2 = args.fx_accel_deficit;
-                effects.baro_lag_s = args.fx_baro_lag;
-                effects.camera_drop_probability = args.fx_cam_drop;
-                effects.camera_time_shift_s = args.fx_cam_shift;
-                effects.provenance = PROVENANCE_ASSUMED;
-                scfg.effects = &effects;
-            }
-
-            scfg.camera_profile = args.cam_profile;
-            scfg.camera_mono    = args.cam_mono;
-            scfg.camera_headless = args.headless;
-#ifdef ENABLE_FOXGLOVE
-            scfg.camera_legacy_topic = true;
-#endif
-            if (args.headless && !args.cam_mono) {
-                scfg.enable.camera = false;
-            }
-#ifndef ENABLE_FOXGLOVE
-            if (!args.headless) {
-                fprintf(stderr, "[main] WARNING: camera stream disabled "
-                                "(no Foxglove bridge to consume it)\n");
-                scfg.enable.camera = false;
-            }
-#endif
+            build_sensor_config(&args, &scfg, &effects);
 
             if (sensor_init(&sim.sensors, sim.model,
                             &sim.transport, &scfg, NULL) != 0) {
                 fprintf(stderr, "ERROR: failed to initialize sensors\n");
-                if (args.imu_name != NULL || args.gnss_name != NULL || args.baro_name != NULL ||
-                    args.mag_name != NULL || args.range_name != NULL || args.weather != NULL || args.vibration > 0.0 ||
-                    args.cam_mono || !isnan(args.fx_accel_deficit)) {
+                if (sensors_requested(&args)) {
                     transport_shutdown(&sim.transport);
                     mj_deleteData(sim.data);
                     mj_deleteModel(sim.model);
