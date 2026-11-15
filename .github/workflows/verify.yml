@@ -103,6 +103,43 @@ jobs:
             xargs -P4 -n1 valgrind --leak-check=full --error-exitcode=1 --gen-suppressions=all \
               --suppressions="$PWD/tests/valgrind.supp" -q
 
+  release-dry-run:
+    name: Release scripts dry run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: ./.github/actions/setup-simulator
+        with:
+          renoir-ref: ${{ env.RENOIR_REF }}
+          extra-packages: patchelf
+      - name: Two builds at different paths must match bit for bit
+        env:
+          RENOIR_DIR: ${{ github.workspace }}/renoir
+        run: scripts/repro_build.sh | tee repro.log && grep -q '^REPRODUCIBLE' repro.log
+      - name: The package is deterministic and runs from its own directory
+        env:
+          RENOIR_DIR: ${{ github.workspace }}/renoir
+        run: |
+          scripts/package.sh 0.0.0 /tmp/package-a
+          sleep 2
+          scripts/package.sh 0.0.0 /tmp/package-b
+          cmp /tmp/package-a/*.tar.gz /tmp/package-b/*.tar.gz
+          mkdir /tmp/unpacked
+          tar xzf /tmp/package-a/*.tar.gz -C /tmp/unpacked
+          cd /tmp/unpacked/mujoco_drones-0.0.0-linux-x86_64
+          env -u LD_LIBRARY_PATH RENOIR_SHM_DIR="$(mktemp -d)" ./bin/hummingbird --headless --scenario scenarios/single_quad.scn --duration 3 | grep -q "final states"
+      - name: The SBOM is generated deterministically
+        env:
+          RENOIR_COMMIT: ${{ env.RENOIR_REF }}
+          MUJOCO_VERSION: "3.5.0"
+          MUJOCO_SHA256: df110ae7b9b0d2e991e0594da4136e9077a625e237f84e7c338410d5199193c7
+        run: |
+          scripts/sbom.sh /tmp/sbom-a 0.0.0
+          sleep 1
+          scripts/sbom.sh /tmp/sbom-b 0.0.0
+          cmp /tmp/sbom-a/mujoco_drones.cdx.json /tmp/sbom-b/mujoco_drones.cdx.json
+
   px4-sitl:
     name: PX4 v1.17.0 end to end (Release)
     runs-on: ubuntu-24.04
