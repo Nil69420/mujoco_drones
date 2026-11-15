@@ -21,7 +21,7 @@ runs:
       shell: bash
       run: |
         python3 -m venv /tmp/buildvenv
-        /tmp/buildvenv/bin/pip install empy==3.3.4 future==1.0.0 pexpect==4.9.0 pymavlink==2.4.50 setuptools
+        /tmp/buildvenv/bin/pip install empy==3.3.4 future==1.0.0 pexpect==4.9.0 pymavlink==2.4.50 setuptools==69.5.1
         git clone --depth 1 --branch "${{ inputs.tag }}" --recurse-submodules --shallow-submodules \
           https://github.com/ArduPilot/ardupilot.git /tmp/ardupilot
         test "$(git -C /tmp/ardupilot rev-parse HEAD)" = "${{ inputs.commit }}"

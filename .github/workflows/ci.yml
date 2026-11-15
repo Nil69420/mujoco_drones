@@ -15,6 +15,7 @@ concurrency:
 
 env:
   MUJOCO_VERSION: "3.5.0"
+  RENOIR_REF: 3c25986004727ec4d765adea92b5db6d76a6724b
 
 jobs:
   build:
@@ -85,6 +86,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/renoir
+          ref: ${{ env.RENOIR_REF }}
           path: renoir
 
       - name: Build renoir
@@ -181,6 +183,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/renoir
+          ref: ${{ env.RENOIR_REF }}
           path: renoir
 
       - name: Build renoir
@@ -225,7 +228,7 @@ jobs:
           mkdir -p corpus_ap
           ./fuzz_ap_servo -max_total_time=30 -timeout=5 -max_len=100 corpus_ap
           clang -std=c11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
-            -I../include fuzz_mav2.c ../src/bridge/mav2.c ../src/bridge/px4_msgs.c -lm -o fuzz_mav2
+            -I../include fuzz_mav2.c ../src/bridge/mav2.c ../src/bridge/mav_dialect.c ../src/bridge/px4_msgs.c -lm -o fuzz_mav2
           mkdir -p corpus_mav2
           ./fuzz_mav2 -max_total_time=30 -timeout=5 -max_len=600 corpus_mav2
           clang -std=gnu11 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer \
@@ -271,6 +274,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/renoir
+          ref: ${{ env.RENOIR_REF }}
           path: renoir
 
       - name: Build renoir

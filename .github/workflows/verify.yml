@@ -64,12 +64,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y cppcheck
-      - name: Analyse the library, bridges, models and tools
+      - name: Analyse the whole source tree
         run: |
           cppcheck --enable=all --inconclusive --check-level=exhaustive --error-exitcode=1 \
             --suppress=missingIncludeSystem --suppress=checkersReport --suppress=unusedFunction \
-            --inline-suppr -Iinclude src/bridge src/sensors src/conditions src/vehicle src/pilot \
-            src/cli.c src/foxglove
+            --suppress=staticFunction --suppress=unmatchedSuppression --inline-suppr \
+            -Iinclude src
 
   valgrind:
     name: Unit tests under valgrind
