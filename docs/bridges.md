@@ -34,7 +34,7 @@ bridge_port = 9002
 
 ### What ArduPilot receives
 
-The state is the simulator's ground truth, not the modelled sensors: the JSON backend has no way to feed GNSS or barometer readings, so ArduPilot generates GPS, barometer and compass data internally from the position and attitude. The IMU values come from the simulated accelerometer and gyro without the noise models. Position is relative to where the vehicle is at the first frame, so spawn the vehicle at its resting height.
+The position, velocity and attitude are the simulator's ground truth: the JSON backend has no way to feed GNSS or barometer readings, so ArduPilot generates GPS, barometer and compass data internally from the position and attitude. The IMU values are different: when the vehicle has an IMU profile (`imu = icm42688p` in the scenario, or `--imu`), the modelled IMU, including bias, noise, vibration and the airframe effects below, is what ArduPilot receives as `imu.gyro` and `imu.accel_body`. Without an IMU profile it receives the noise-free simulated values. Position is relative to where the vehicle is at the first frame, so spawn the vehicle at its resting height.
 
 Mapping from PWM to thrust follows ArduPilot's thrust expo (`MOT_THST_EXPO`, default 0.65), see `ap_map_quad_plus` in `src/bridge/ap_map.c`.
 
@@ -42,14 +42,15 @@ Mapping from PWM to thrust follows ArduPilot's thrust expo (`MOT_THST_EXPO`, def
 
 - Unit tests: `ap_json` (codec and the JSON parser behaviour ArduPilot uses), `ap_map`, `ap_link` (loopback), `ap_frames` (ENU/FLU to NED/FRD), `ap_runner` (lockstep, duplicates, restart, one-step state lag).
 - Fuzz target: `fuzz/fuzz_ap_servo.c` (37 million executions without findings).
-- End to end: `tests/ardupilot_e2e.sh` runs the scenario above against a real SITL binary and checks takeoff, waypoint and landing. It skips unless `ARDUPILOT_COPTER`, `ARDUPILOT_COPTER_DEFAULTS` and a Python with `pymavlink` (`ARDUPILOT_PYTHON`) are set.
+- End to end (validated on ArduCopter 4.6.1, tag `Copter-4.6.1`, commit `57591cb8`): `tests/ardupilot_e2e.sh` runs the scenario above against a real SITL binary and checks takeoff, waypoint and landing. It skips unless `ARDUPILOT_COPTER`, `ARDUPILOT_COPTER_DEFAULTS` and a Python with `pymavlink` (`ARDUPILOT_PYTHON`) are set.
 
 ### Known limits
 
 - Multirotor plus-frame quad only; other airframes need their own mapping tables.
 - One bridged vehicle per scenario.
 - PX4 receives ground-truth GPS; the GNSS model is not routed yet.
-- Sensor models are not yet routed through ArduPilot (see the roadmap: GPS_INPUT).
+- Only the IMU model reaches ArduPilot. GNSS, barometer and magnetometer models are not routed (see the roadmap: GPS_INPUT).
+- Stock ArduCopter 4.6.1 has no `HIL_SENSOR` or `HIL_STATE` handler (`GCS_Common.cpp` only warns about `HIL_GPS`), so sensor injection into a flight controller over MAVLink needs custom firmware; the JSON backend is the supported route into stock firmware.
 
 ## PX4 (simulator MAVLink API)
 

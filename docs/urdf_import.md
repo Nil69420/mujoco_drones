@@ -36,7 +36,15 @@ What it does, in order:
 1. Detects `<robot>` (URDF) vs `<sdf>` (SDF). SDF input is translated
    by a narrow translator (links/inertial/visual/collision, revolute/
    fixed/continuous joints, poses); anything outside the subset prints
-   a named warning instead of silently vanishing.
+   a named warning instead of silently vanishing. Poses follow the SDF
+   rules: a link `<pose>` is relative to the model, a joint `<pose>` is
+   relative to its child link, and an axis is in the joint frame unless
+   `<use_parent_model_frame>` is set, in which case it is in the model
+   frame. The URDF joint origin is therefore
+   `inverse(parent pose) * child pose * joint pose`, the child's
+   inertial, visual and collision poses are re-based into the joint
+   frame, and a model-frame axis is rotated into the joint frame.
+   `<pose relative_to>` is not supported and prints a warning.
 2. Resolves every mesh reference (`package://`, relative, absolute)
    against the input directory, copies the meshes into
    `model/airframes/<name>/meshes/` and rewrites the references to
