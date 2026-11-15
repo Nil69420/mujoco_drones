@@ -373,11 +373,18 @@ static void frame_done(ws_parser_t *p, ws_event_t *ev) {
     }
 }
 
+static size_t ws_extended_length_bytes(uint8_t len7) {
+    if (len7 == 126) {
+        return 2;
+    }
+    return len7 == 127 ? 8 : 0;
+}
+
 static void feed_header_byte(ws_parser_t *prs, uint8_t byte, ws_event_t *ev) {
     prs->head[prs->head_len++] = byte;
     if (prs->head_len == 2) {
         uint8_t len7 = prs->head[1] & 0x7FU;
-        size_t ext = len7 == 126 ? 2 : (len7 == 127 ? 8 : 0);
+        size_t ext = ws_extended_length_bytes(len7);
         prs->head_need = 2 + ext + ((prs->head[1] & 0x80U) != 0 ? 4U : 0U);
     }
     if (prs->head_len >= prs->head_need && prs->head_len >= 2) {

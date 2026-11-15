@@ -89,6 +89,20 @@ static int add_spin_actuator(mjSpec *spec, const char *jname, const config_actua
     return 1;
 }
 
+static double joint_kp(const joint_plan_t *plan) {
+    if (plan->rotor) {
+        return 0.0;
+    }
+    return plan->override ? plan->override->kp : 40.0;
+}
+
+static const char *joint_kp_note(const joint_plan_t *plan) {
+    if (plan->rotor) {
+        return "";
+    }
+    return plan->override ? " (config kp)" : " (heuristic kp=40.0)";
+}
+
 static int inject_for_joint(mjSpec *spec, const actuator_config_t *cfg, const char *jname,
                             const mjsJoint *jnt) {
     joint_plan_t plan = plan_joint(cfg, jname, jnt);
@@ -99,9 +113,9 @@ static int inject_for_joint(mjSpec *spec, const actuator_config_t *cfg, const ch
         return 0;
     }
     int added = 0;
-    double kp = plan.rotor ? 0.0 : (plan.override ? plan.override->kp : 40.0);
+    double kp = joint_kp(&plan);
     if (!plan.spin_only && add_joint_actuator(spec, jname, plan.rotor, kp, plan.override)) {
-        const char *note = plan.rotor ? "" : (plan.override ? " (config kp)" : " (heuristic kp=40.0)");
+        const char *note = joint_kp_note(&plan);
         printf("  actuator: %s -> '%s'%s\n", plan.rotor ? "motor" : "position", jname, note);
         added++;
     }

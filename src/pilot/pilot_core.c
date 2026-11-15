@@ -9,7 +9,7 @@ static const double ARM_THROTTLE_MAX = 0.05;
 static const double SWITCH_THRESHOLD = 0.5;
 
 static double clamp_unit(double value) {
-    return value < -1.0 ? -1.0 : (value > 1.0 ? 1.0 : value);
+    return fmin(fmax(value, -1.0), 1.0);
 }
 
 void pilot_init(pilot_t *pilot, const pilot_profile_t *profile) {
@@ -80,7 +80,7 @@ static double throttle_input(pilot_t *pilot, double dt_s) {
     }
     double rate = stick(pilot, profile->axis_throttle, profile->invert_throttle);
     pilot->throttle += rate * profile->throttle_rate * dt_s;
-    pilot->throttle = pilot->throttle < 0.0 ? 0.0 : (pilot->throttle > 1.0 ? 1.0 : pilot->throttle);
+    pilot->throttle = fmin(fmax(pilot->throttle, 0.0), 1.0);
     return pilot->throttle;
 }
 
@@ -157,7 +157,7 @@ void pilot_to_rc(const pilot_state_t *state, uint16_t channels[PILOT_RC_CHANNELS
     }
     channels[0] = microseconds(state->roll);
     channels[1] = microseconds(state->pitch);
-    channels[2] = (uint16_t)lround(1000.0 + 1000.0 * (state->throttle < 0.0 ? 0.0 : (state->throttle > 1.0 ? 1.0 : state->throttle)));
+    channels[2] = (uint16_t)lround(1000.0 + 1000.0 * fmin(fmax(state->throttle, 0.0), 1.0));
     channels[3] = microseconds(state->yaw);
     channels[4] = state->arm ? 2000 : 1000;
     channels[5] = state->mode ? 2000 : 1000;
