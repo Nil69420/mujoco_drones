@@ -61,4 +61,4 @@ for _ in $(seq 1 20); do
 done
 sleep 1
 wait_for_bf
-"$PY" -u -I "$SRC_DIR/tests/betaflight_e2e.py" fly "$WORK/sim.log"
+"$PY" -u -I "$SRC_DIR/tests/betaflight_e2e.py" fly "$WORK/sim.log" "${BETAFLIGHT_E2E_MODE:-flight}"

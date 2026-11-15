@@ -141,6 +141,39 @@ def pulse(radio, index, value, axis, seconds=1.2):
     return max(window, key=abs)
 
 
+class AltitudeHold:
+    TARGET_ABOVE_GROUND = 3.0
+    MIN_THROTTLE = 1100
+    MAX_THROTTLE = 1500
+    PROPORTIONAL = 70.0
+    DERIVATIVE = 55.0
+
+    def __init__(self, radio, ground):
+        self.radio = radio
+        self.target = ground + self.TARGET_ABOVE_GROUND
+        self.running = True
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+        self.thread.start()
+
+    def loop(self):
+        previous = None
+        while self.running:
+            rows = history()
+            if len(rows) >= 2:
+                now, before = rows[-1], rows[-2]
+                span = now[0] - before[0]
+                velocity = (now[3] - before[3]) / span if span > 1e-6 else 0.0
+                error = self.target - now[3]
+                command = HOVER_THROTTLE + self.PROPORTIONAL * error - self.DERIVATIVE * velocity
+                self.radio.channels[2] = int(min(max(command, self.MIN_THROTTLE), self.MAX_THROTTLE))
+                previous = now
+            time.sleep(0.1)
+
+    def stop(self):
+        self.running = False
+        self.thread.join(timeout=2.0)
+
+
 def lift_off(radio, ground):
     for _ in range(4):
         radio.channels[4] = 2000
@@ -157,8 +190,34 @@ def lift_off(radio, ground):
     return False
 
 
+def finish_flight(radio, hold, ground):
+    samples = []
+    end = time.time() + 8.0
+    while time.time() < end:
+        samples.append(truth()[2] - ground)
+        time.sleep(0.25)
+    low, high = min(samples), max(samples)
+    print("altitude held between %.2f and %.2f m above the ground" % (low, high))
+    if low < AltitudeHold.TARGET_ABOVE_GROUND - 1.0 or high > AltitudeHold.TARGET_ABOVE_GROUND + 1.0:
+        print("FAIL: altitude hold")
+        return 1
+    hold.stop()
+    radio.channels[2] = 1000
+    time.sleep(6.0)
+    touchdown = truth()[2] - ground
+    print("altitude after cutting the throttle %.2f m" % touchdown)
+    if touchdown > 0.5:
+        print("FAIL: did not come back down")
+        return 1
+    radio.channels[4] = 1000
+    radio.running = False
+    print("PASS")
+    return 0
+
+
 def main():
     global SIM_LOG
+    mode = sys.argv[3] if len(sys.argv) > 3 else "flight"
     if len(sys.argv) > 2 and sys.argv[1] == "fly":
         SIM_LOG = sys.argv[2]
     if len(sys.argv) > 1 and sys.argv[1] == "configure":
@@ -171,9 +230,18 @@ def main():
     if not lift_off(radio, ground):
         print("FAIL: did not lift off")
         return 1
-    radio.channels[2] = HOVER_THROTTLE
-    time.sleep(1.5)
-    print("altitude %.2f m above the ground" % (truth()[2] - ground))
+    hold = AltitudeHold(radio, ground)
+    deadline = time.time() + 25.0
+    while time.time() < deadline and abs(truth()[2] - hold.target) > 0.4:
+        time.sleep(0.5)
+    time.sleep(2.0)
+    height = truth()[2] - ground
+    print("altitude %.2f m above the ground" % height)
+    if abs(height - AltitudeHold.TARGET_ABOVE_GROUND) > 1.0:
+        print("FAIL: could not hold %.0f m" % AltitudeHold.TARGET_ABOVE_GROUND)
+        return 1
+    if mode == "flight":
+        return finish_flight(radio, hold, ground)
     forward = pulse(radio, 1, 1700, "pitch_up")
     back = pulse(radio, 1, 1300, "pitch_up")
     right = pulse(radio, 0, 1700, "roll_right")
@@ -199,6 +267,7 @@ def main():
     if not 25 <= turned <= 270:
         print("FAIL: yaw stick direction")
         return 1
+    hold.stop()
     radio.channels[2] = 1000
     time.sleep(3)
     radio.channels[4] = 1000
