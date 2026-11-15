@@ -92,12 +92,16 @@ static int parse_number(const char *text, double *out) {
     return 0;
 }
 
+static void store_field(cli_args_t *args, size_t offset, const void *source, size_t size) {
+    memcpy((char *)args + offset, source, size);
+}
+
 static int apply_option(const opt_t *opt, const char *value, const char *name, cli_args_t *args) {
-    char *base = (char *)args;
+    const bool enabled = true;
     if (opt->kind == OPT_FLAG) {
-        *(bool *)(void *)(base + opt->offset) = true;
+        store_field(args, opt->offset, &enabled, sizeof(enabled));
     } else if (opt->kind == OPT_STRING) {
-        *(const char **)(void *)(base + opt->offset) = value;
+        store_field(args, opt->offset, (const void *)&value, sizeof(value));
     } else {
         double number = 0.0;
         if (parse_number(value, &number) != 0) {
@@ -109,13 +113,14 @@ static int apply_option(const opt_t *opt, const char *value, const char *name, c
                 fprintf(stderr, "Invalid integer for %s: %s\n", name, value);
                 return -1;
             }
-            *(int *)(void *)(base + opt->offset) = (int)number;
+            const int integer = (int)number;
+            store_field(args, opt->offset, &integer, sizeof(integer));
         } else {
-            *(double *)(void *)(base + opt->offset) = number;
+            store_field(args, opt->offset, &number, sizeof(number));
         }
     }
     if (opt->has_implies) {
-        *(bool *)(void *)(base + opt->implies_offset) = true;
+        store_field(args, opt->implies_offset, &enabled, sizeof(enabled));
     }
     return 0;
 }

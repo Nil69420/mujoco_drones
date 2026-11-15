@@ -135,7 +135,7 @@ static int parse_effect(const parse_ctx_t *ctx, vehicle_assembly_spec_t *veh, co
             fprintf(stderr, "%s:%d: %s needs a finite number\n", ctx->path, ctx->line, key);
             return -1;
         }
-        *(double *)(void *)((char *)&veh->effects + FIELDS[idx].offset) = number;
+        memcpy((char *)&veh->effects + FIELDS[idx].offset, &number, sizeof(number));
         veh->effects.provenance = PROVENANCE_ASSUMED;
         veh->effects_mask |= 1U << idx;
         *handled = 1;
@@ -189,8 +189,8 @@ static int handle_vehicle_key(const parse_ctx_t *ctx, vehicle_assembly_spec_t *v
     }
     for (size_t idx = 0; idx < sizeof(NUMBER_FIELDS) / sizeof(NUMBER_FIELDS[0]); idx++) {
         if (strcmp(key, NUMBER_FIELDS[idx].key) == 0) {
-            double *dest = (double *)(void *)((char *)veh + NUMBER_FIELDS[idx].offset);
-            *dest = strtod(value, NULL);
+            const double number = strtod(value, NULL);
+            memcpy((char *)veh + NUMBER_FIELDS[idx].offset, &number, sizeof(number));
             return 0;
         }
     }

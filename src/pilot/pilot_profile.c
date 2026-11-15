@@ -161,6 +161,10 @@ bool pilot_profile_at(int index, pilot_profile_t *out) {
     return true;
 }
 
+static int fold_case(char letter) {
+    return tolower((unsigned char)letter);
+}
+
 static bool contains_nocase(const char *haystack, const char *needle) {
     size_t need = strlen(needle);
     size_t have = strlen(haystack);
@@ -169,7 +173,7 @@ static bool contains_nocase(const char *haystack, const char *needle) {
     }
     for (size_t i = 0; i + need <= have; i++) {
         size_t j = 0;
-        while (j < need && tolower((unsigned char)haystack[i + j]) == tolower((unsigned char)needle[j])) {
+        while (j < need && fold_case(haystack[i + j]) == fold_case(needle[j])) {
             j++;
         }
         if (j == need) {
@@ -327,15 +331,30 @@ static int apply_table_key(pilot_profile_t *profile, const char *key, const char
     char *base = (char *)profile;
     const field_t *field = find_field(AXIS_FIELDS, sizeof(AXIS_FIELDS) / sizeof(AXIS_FIELDS[0]), key);
     if (field != NULL) {
-        return assign_axis(value, (uint16_t *)(void *)(base + field->offset));
+        uint16_t code = 0;
+        int status = assign_axis(value, &code);
+        if (status == 0) {
+            memcpy(base + field->offset, &code, sizeof(code));
+        }
+        return status;
     }
     field = find_field(BUTTON_FIELDS, sizeof(BUTTON_FIELDS) / sizeof(BUTTON_FIELDS[0]), key);
     if (field != NULL) {
-        return assign_button(value, (uint16_t *)(void *)(base + field->offset));
+        uint16_t code = 0;
+        int status = assign_button(value, &code);
+        if (status == 0) {
+            memcpy(base + field->offset, &code, sizeof(code));
+        }
+        return status;
     }
     field = find_field(BOOL_FIELDS, sizeof(BOOL_FIELDS) / sizeof(BOOL_FIELDS[0]), key);
     if (field != NULL) {
-        return parse_bool(value, (bool *)(void *)(base + field->offset)) ? 0 : -1;
+        bool flag = false;
+        if (!parse_bool(value, &flag)) {
+            return -1;
+        }
+        memcpy(base + field->offset, &flag, sizeof(flag));
+        return 0;
     }
     field = find_field(NUMBER_FIELDS, sizeof(NUMBER_FIELDS) / sizeof(NUMBER_FIELDS[0]), key);
     if (field != NULL) {
@@ -344,7 +363,7 @@ static int apply_table_key(pilot_profile_t *profile, const char *key, const char
         if (!parse_number(value, &number) || number < 0.0 || number > limit) {
             return -1;
         }
-        *(double *)(void *)(base + field->offset) = number;
+        memcpy(base + field->offset, &number, sizeof(number));
         return 0;
     }
     return 1;
