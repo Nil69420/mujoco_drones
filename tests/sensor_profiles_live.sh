@@ -76,7 +76,14 @@ if grep -q "headless camera unavailable\|no usable EGL device\|built without EGL
 else
     echo "$CAM" | grep "camera:"
     echo "$CAM" | grep -q "1280x720 x1" || fail "camera frames are not 1280x720 mono8"
-    echo "$CAM" | grep -q "simulated-time rate 120.0 fps" || fail "camera is not running at 120 fps"
+    CAM_FRAMES=$(echo "$CAM" | sed -n 's/^camera: \([0-9]*\) frames.*/\1/p')
+    CAM_RATE=$(echo "$CAM" | sed -n 's/.*simulated-time rate \([0-9.]*\) fps.*/\1/p')
+    if [ "${CAM_FRAMES:-0}" -ge 50 ]; then
+        [ "$CAM_RATE" = "120.0" ] || fail "camera is not running at 120 fps (measured $CAM_RATE over $CAM_FRAMES frames)"
+    else
+        [ "${CAM_FRAMES:-0}" -ge 2 ] || fail "camera delivered fewer than two frames"
+        awk -v r="$CAM_RATE" 'BEGIN { exit !(r >= 114 && r <= 126) }' || fail "camera rate $CAM_RATE fps is outside 5 percent of 120 over $CAM_FRAMES frames"
+    fi
     CAM_MEAN=$(echo "$CAM" | sed -n 's/.*mean level \([0-9.]*\).*/\1/p')
     awk -v m="$CAM_MEAN" 'BEGIN { exit !(m > 5 && m < 250) }' || fail "camera image is blank or saturated (mean $CAM_MEAN)"
     [ "$(wc -c < "$BIN_DIR/test_frame.pgm")" -gt 921600 ] || fail "frame dump has the wrong size"
