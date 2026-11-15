@@ -47,7 +47,7 @@ uint16_t bf_runner_port(const bf_runner_t *runner) {
     return runner != NULL ? bf_link_port(runner->link) : 0;
 }
 
-static void advance(const mjModel *model, mjData *data, bf_tick_fn tick, void *ctx) {
+static void advance(const mjModel *model, const mjData *data, bf_tick_fn tick, void *ctx) {
     double target = data->time + STEP_S;
     double half_step = 0.5 * model->opt.timestep;
     while (data->time < target - half_step) {

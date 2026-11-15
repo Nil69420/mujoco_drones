@@ -93,7 +93,7 @@ static int send_state(px4_runner_t *runner, const vehicle_t *vehicle, const ap_s
     return 0;
 }
 
-static void advance(const mjModel *model, mjData *data, px4_tick_fn tick, void *ctx) {
+static void advance(const mjModel *model, const mjData *data, px4_tick_fn tick, void *ctx) {
     double target = data->time + STEP_S;
     double half_step = 0.5 * model->opt.timestep;
     while (data->time < target - half_step) {

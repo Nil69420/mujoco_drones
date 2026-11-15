@@ -42,7 +42,7 @@ uint16_t ap_runner_port(const ap_runner_t *runner) {
     return runner != NULL ? ap_link_port(runner->link) : 0;
 }
 
-static void advance(const mjModel *model, mjData *data, ap_tick_fn tick, void *ctx,
+static void advance(const mjModel *model, const mjData *data, ap_tick_fn tick, void *ctx,
                     unsigned rate_hz) {
     double period = 1.0 / (double)(rate_hz > 0 ? rate_hz : DEFAULT_RATE_HZ);
     double target = data->time + period;
