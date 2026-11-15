@@ -6,8 +6,9 @@
 
 #include "sensors/noise.h"
 
-#define CONDITIONS_MAX_ROTORS 8
-
+enum {
+    CONDITIONS_MAX_ROTORS = 8,
+};
 typedef struct {
     const char *name;
     double ambient_temp_c;

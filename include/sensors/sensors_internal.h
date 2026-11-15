@@ -3,7 +3,9 @@
 
 #include "sensors/sensors.h"
 
-#define CAMERA_RING_SLOTS 4U
+enum {
+    CAMERA_RING_SLOTS = 4,
+};
 #define MAG_DEFAULT_RATE_HZ 100.0
 #define SENSOR_ROTOR_RATED_RPM 8000.0
 #define SENSOR_VIBRATION_BASE_MS2 0.6

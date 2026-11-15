@@ -3,8 +3,9 @@
 
 #include <stddef.h>
 
-#define XML_MAX_ATTRS 32
-
+enum {
+    XML_MAX_ATTRS = 32,
+};
 typedef struct {
     char *name;
     char *value;

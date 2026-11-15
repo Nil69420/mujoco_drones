@@ -3,9 +3,10 @@
 
 #include <stddef.h>
 
-#define CONFIG_MAX_ACTUATORS 64
-#define CONFIG_NAME_LEN 256
-
+enum {
+    CONFIG_MAX_ACTUATORS = 64,
+    CONFIG_NAME_LEN = 256,
+};
 typedef struct {
     char joint_name[CONFIG_NAME_LEN];
     int is_motor;   // 1 = motor, 0 = position

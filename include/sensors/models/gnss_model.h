@@ -7,8 +7,9 @@
 #include "sensors/models/provenance.h"
 #include "sensors/noise.h"
 
-#define GNSS_QUEUE 64
-
+enum {
+    GNSS_QUEUE = 64,
+};
 typedef enum {
     GNSS_FIX_NONE = 0,
     GNSS_FIX_NO_FIX = 1,
