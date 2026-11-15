@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup-simulator
+      - /.github/actions/setup-ardupilot-sitl
+      - /.github/actions/setup-px4-sitl
+      - /.github/actions/setup-betaflight-sitl
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
