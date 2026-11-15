@@ -23,7 +23,7 @@ int imp_find_model_file(const char *dir, char *out, size_t out_sz) {
     }
 
     int found = 0;
-    struct dirent *ent = NULL;
+    const struct dirent *ent = NULL;
     while ((ent = readdir(d)) != NULL) { // NOLINT(concurrency-mt-unsafe)
         if (ent->d_type == DT_DIR) {
             continue;

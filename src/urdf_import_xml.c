@@ -127,7 +127,7 @@ static int advance_past_non_tag(xml_reader_t *r, const char *d) {
 // Parse one attribute at *pos (which points at the attribute name start).
 // Returns 0 with *pos advanced past the attribute, 1 if the tag ended,
 // -1 on malformed input.
-static int parse_one_attr(xml_reader_t *r, size_t *pos, xml_element_t *out) {
+static int parse_one_attr(const xml_reader_t *r, size_t *pos, xml_element_t *out) {
     const char *d = r->data;
     size_t len = r->len;
     size_t j = *pos;
@@ -198,7 +198,7 @@ static int parse_one_attr(xml_reader_t *r, size_t *pos, xml_element_t *out) {
     return 0;
 }
 
-static void capture_text_after_tag(xml_reader_t *r, xml_element_t *out) {
+static void capture_text_after_tag(const xml_reader_t *r, xml_element_t *out) {
     if (!r->capture_text || out->is_self_closing) {
         return;
     }

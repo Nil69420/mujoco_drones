@@ -124,7 +124,7 @@ static void record_visual_mesh(visual_mesh_t *visuals, int *nvisuals, int visual
     (*nvisuals)++;
 }
 
-static int handle_mesh_element(xml_element_t *elem, const char *input_dir, mesh_table_t *table,
+static int handle_mesh_element(const xml_element_t *elem, const char *input_dir, mesh_table_t *table,
                                const char *cur_link, int in_visual, int have_rpy,
                                const double origin_xyz[3], const double origin_rpy[3],
                                visual_mesh_t *visuals, int *nvisuals, int visuals_cap) {
@@ -273,7 +273,7 @@ static int scan_element(scan_state_t *st, xml_element_t *elem, const char *input
         st->in_root_inertial = !st->saw_root_inertial && strcmp(st->cur_link, "import_root") != 0;
         st->saw_root_inertial = 1;
     } else if (st->in_root_inertial &&
-               (strcmp(tag, "mass") == 0 || strcmp(tag, "inertia") == 0 || strcmp(tag, "link") == 0)) {
+               (strcmp(tag, "mass") == 0 || strcmp(tag, "inertia") == 0)) {
         scan_inertial_parts(st, elem);
     } else if (strcmp(tag, "visual") == 0) {
         st->in_visual = 1;
@@ -326,7 +326,7 @@ static void report_root(const scan_state_t *st, char *root_link_out, char *root_
     root_mass_out[len] = '\0';
 }
 
-static int copy_meshes(mesh_table_t *table, const char *output_name) {
+static int copy_meshes(const mesh_table_t *table, const char *output_name) {
     char meshes_dir[512];
     snprintf(meshes_dir, sizeof(meshes_dir), "model/airframes/%.*s/meshes",
              (int)(sizeof(meshes_dir) - 30), output_name);
