@@ -1,0 +1,8 @@
+[book]
+title = "mujoco_drones"
+authors = ["Nilanjan Chowdhury"]
+language = "en"
+src = "."
+
+[build]
+create-missing = false

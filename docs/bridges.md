@@ -34,7 +34,7 @@ bridge_port = 9002
 
 ### What ArduPilot receives
 
-The state is the simulator's ground truth, not the modelled sensors: the JSON backend has no way to feed GNSS or barometer readings, so ArduPilot generates GPS, barometer and compass data internally from the position and attitude. The IMU values come from the simulated accelerometer and gyro without the noise models. Position is relative to where the vehicle is at the first frame, so spawn the vehicle at its resting height.
+The position, velocity and attitude are the simulator's ground truth: the JSON backend has no way to feed GNSS or barometer readings, so ArduPilot generates GPS, barometer and compass data internally from the position and attitude. The IMU values are different: when the vehicle has an IMU profile (`imu = icm42688p` in the scenario, or `--imu`), the modelled IMU, including bias, noise, vibration and the airframe effects below, is what ArduPilot receives as `imu.gyro` and `imu.accel_body`. Without an IMU profile it receives the noise-free simulated values. Position is relative to where the vehicle is at the first frame, so spawn the vehicle at its resting height.
 
 Mapping from PWM to thrust follows ArduPilot's thrust expo (`MOT_THST_EXPO`, default 0.65), see `ap_map_quad_plus` in `src/bridge/ap_map.c`.
 
@@ -42,18 +42,19 @@ Mapping from PWM to thrust follows ArduPilot's thrust expo (`MOT_THST_EXPO`, def
 
 - Unit tests: `ap_json` (codec and the JSON parser behaviour ArduPilot uses), `ap_map`, `ap_link` (loopback), `ap_frames` (ENU/FLU to NED/FRD), `ap_runner` (lockstep, duplicates, restart, one-step state lag).
 - Fuzz target: `fuzz/fuzz_ap_servo.c` (37 million executions without findings).
-- End to end: `tests/ardupilot_e2e.sh` runs the scenario above against a real SITL binary and checks takeoff, waypoint and landing. It skips unless `ARDUPILOT_COPTER`, `ARDUPILOT_COPTER_DEFAULTS` and a Python with `pymavlink` (`ARDUPILOT_PYTHON`) are set.
+- End to end (validated on ArduCopter 4.6.1, tag `Copter-4.6.1`, commit `57591cb8`): `tests/ardupilot_e2e.sh` runs the scenario above against a real SITL binary and checks takeoff, waypoint and landing. It skips unless `ARDUPILOT_COPTER`, `ARDUPILOT_COPTER_DEFAULTS` and a Python with `pymavlink` (`ARDUPILOT_PYTHON`) are set.
 
 ### Known limits
 
 - Multirotor plus-frame quad only; other airframes need their own mapping tables.
 - One bridged vehicle per scenario.
 - PX4 receives ground-truth GPS; the GNSS model is not routed yet.
-- Sensor models are not yet routed through ArduPilot (see the roadmap: GPS_INPUT).
+- Only the IMU model reaches ArduPilot. GNSS, barometer and magnetometer models are not routed (see the roadmap: GPS_INPUT).
+- Stock ArduCopter 4.6.1 has no `HIL_SENSOR` or `HIL_STATE` handler (`GCS_Common.cpp` only warns about `HIL_GPS`), so sensor injection into a flight controller over MAVLink needs custom firmware; the JSON backend is the supported route into stock firmware.
 
 ## PX4 (simulator MAVLink API)
 
-Status: verified against PX4 built from main (2026-11-09) without Gazebo. A multicopter with default parameters arms, takes off to 5 m (4.99 m measured), flies to a waypoint 11 m away with 0.04 m error and lands and disarms. Fixed-wing and VTOL airframes are not mapped yet.
+Status: verified against PX4 v1.17.0 (commit `d6f12ad1`) built without Gazebo, and earlier against PX4 main (2026-11-09). CI builds v1.17.0 as `px4_sitl_nogz`, a board file derived from `default.px4board` with the three Gazebo modules switched off. A multicopter with default parameters arms, takes off to 5 m (4.99 m measured), flies to a waypoint 11 m away with 0.04 m error and lands and disarms. Fixed-wing and VTOL airframes are not mapped yet.
 
 ### How it works
 
@@ -83,7 +84,7 @@ Accelerometer, gyro, magnetometer and barometer values come from the modelled se
 
 ## Betaflight (SITL UDP)
 
-Status: experimental. Stock Betaflight SITL (built with `make TARGET=SITL`, default Gazebo-bridge conventions) receives the simulator's state, runs its real attitude estimator on the modelled gyro and accelerometer, arms from UDP RC, flies, and answers stick inputs in the right directions in single runs. The closed-loop test `tests/betaflight_e2e.sh` is not a reliable gate yet: Betaflight has no altitude hold, so open-loop stick pulses drift widely and the pass rate over three consecutive runs was below 100%. Do not rely on it as a regression gate.
+Status: experimental. Stock Betaflight SITL (built with `make TARGET=SITL`, default Gazebo-bridge conventions) receives the simulator's state, runs its real attitude estimator on the modelled gyro and accelerometer, arms from UDP RC and lifts off. Verified against Betaflight master at commit `6241cfb1` (2026-11-15): `tests/betaflight_e2e.sh` boots it, applies `tests/betaflight/config.cli`, arms, lifts off, holds 3 m with a closed-loop altitude controller in the test's radio, and comes back down. The stick-response check (`betaflight_sticks_e2e`, mode `sticks`, labelled experimental and not gating) is not reliable on this revision: the pitch response was correct in some runs (about -13 and +15 degrees) and wrong or absent in others, and roll showed no response, so do not rely on attitude control through this bridge yet. The 2026.6.2 release build crashed at first boot in this environment while writing its emulated flash.
 
 ### How it works
 

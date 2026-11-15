@@ -310,6 +310,12 @@ target_compile_options(test_serialize PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_libraries(test_serialize PRIVATE m)
 add_test(NAME serialize COMMAND test_serialize)
 
+add_executable(test_import_pose tests/test_import_pose.c src/urdf_import_pose.c)
+target_include_directories(test_import_pose PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
+target_compile_options(test_import_pose PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_libraries(test_import_pose PRIVATE m)
+add_test(NAME import_pose COMMAND test_import_pose)
+
 add_executable(test_import_config tests/test_import_config.c src/urdf_import_config.c)
 target_include_directories(test_import_config PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(test_import_config PRIVATE ${COMMON_COMPILE_OPTIONS})
@@ -421,6 +427,8 @@ if(ENABLE_IPC)
         add_test(NAME scenario_smoke_${scn} COMMAND ${CMAKE_SOURCE_DIR}/tests/scenario_smoke.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR} scenarios/${scn}.scn 5)
         set_tests_properties(scenario_smoke_${scn} PROPERTIES TIMEOUT 120)
     endforeach()
+    add_test(NAME tools_smoke COMMAND ${CMAKE_SOURCE_DIR}/tests/tools_smoke.sh ${CMAKE_BINARY_DIR})
+    set_tests_properties(tools_smoke PROPERTIES TIMEOUT 120)
     add_test(NAME multirotor_live COMMAND ${CMAKE_SOURCE_DIR}/tests/multirotor_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     add_test(NAME wind_live COMMAND ${CMAKE_SOURCE_DIR}/tests/wind_live.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     add_test(NAME sensor_profiles_live COMMAND ${CMAKE_SOURCE_DIR}/tests/sensor_profiles_live.sh ${CMAKE_BINARY_DIR})
@@ -431,7 +439,9 @@ if(ENABLE_IPC)
     add_test(NAME px4_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/px4_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
     set_tests_properties(px4_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 600 RESOURCE_LOCK sitl_bridge_ports)
     add_test(NAME betaflight_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/betaflight_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
-    set_tests_properties(betaflight_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 RESOURCE_LOCK sitl_bridge_ports LABELS experimental)
+    set_tests_properties(betaflight_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 RESOURCE_LOCK sitl_bridge_ports)
+    add_test(NAME betaflight_sticks_e2e COMMAND ${CMAKE_SOURCE_DIR}/tests/betaflight_e2e.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR})
+    set_tests_properties(betaflight_sticks_e2e PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP" TIMEOUT 300 RESOURCE_LOCK sitl_bridge_ports LABELS experimental ENVIRONMENT "BETAFLIGHT_E2E_MODE=sticks")
     target_compile_definitions(send_command PRIVATE ENABLE_IPC)
 
     if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -463,6 +473,7 @@ if(ENABLE_IPC)
         src/urdf_import_xml.c
         src/urdf_import_config.c
         src/urdf_import_sdf.c
+        src/urdf_import_pose.c
     )
     target_compile_options(urdf_import PRIVATE ${COMMON_COMPILE_OPTIONS})
     target_include_directories(urdf_import PRIVATE
@@ -571,6 +582,7 @@ if(CLANG_TIDY)
             "${CMAKE_SOURCE_DIR}/src/urdf_import_xml.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_config.c"
             "${CMAKE_SOURCE_DIR}/src/urdf_import_sdf.c"
+            "${CMAKE_SOURCE_DIR}/src/urdf_import_pose.c"
         )
     endif()
 

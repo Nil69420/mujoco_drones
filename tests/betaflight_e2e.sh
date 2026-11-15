@@ -61,4 +61,11 @@ for _ in $(seq 1 20); do
 done
 sleep 1
 wait_for_bf
-"$PY" -u -I "$SRC_DIR/tests/betaflight_e2e.py" fly "$WORK/sim.log"
+if ! "$PY" -u -I "$SRC_DIR/tests/betaflight_e2e.py" fly "$WORK/sim.log" "${BETAFLIGHT_E2E_MODE:-flight}"; then
+    echo "--- simulator log (tail) ---"
+    tail -n 30 "$WORK/sim.log" || true
+    echo "--- betaflight log (last arming state) ---"
+    grep "Arming" "$WORK/bf.log" | tail -n 3 || true
+    tail -n 5 "$WORK/bf.log" || true
+    exit 1
+fi

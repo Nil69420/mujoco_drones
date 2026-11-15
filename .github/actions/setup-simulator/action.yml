@@ -20,7 +20,7 @@ runs:
         sudo apt-get install -y build-essential cmake libglfw3-dev libgl-dev libegl-dev ${{ inputs.extra-packages }}
     - name: Cache MuJoCo
       id: cache-mujoco
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ~/.mujoco/mujoco
         key: mujoco-${{ inputs.mujoco-version }}-linux-x86_64
@@ -34,9 +34,11 @@ runs:
           "https://github.com/google-deepmind/mujoco/releases/download/${{ inputs.mujoco-version }}/mujoco-${{ inputs.mujoco-version }}-linux-x86_64.tar.gz"
         tar xzf /tmp/mujoco.tar.gz -C ~/.mujoco
         mv ~/.mujoco/mujoco-${{ inputs.mujoco-version }} ~/.mujoco/mujoco
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+      with:
+        toolchain: stable
     - name: Check out renoir
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       with:
         repository: ${{ github.repository_owner }}/renoir
         ref: ${{ inputs.renoir-ref }}

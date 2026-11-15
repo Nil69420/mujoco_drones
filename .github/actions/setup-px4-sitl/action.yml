@@ -1,0 +1,56 @@
+name: Set up PX4 SITL
+description: Builds (or restores from cache) a pinned PX4 SITL binary without Gazebo and a Python environment with pymavlink
+inputs:
+  tag:
+    description: PX4 tag
+    required: true
+  commit:
+    description: Commit the tag must resolve to
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cache the PX4 SITL build
+      id: cache-px4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ~/px4-sitl
+        key: px4-sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v2
+    - name: Build PX4 SITL
+      if: steps.cache-px4.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build git python3-venv python3-dev xxd
+        python3 -m venv /tmp/px4venv
+        /tmp/px4venv/bin/pip install Cerberus==1.3.8 empy==3.3.4 Jinja2==3.1.6 jsonschema==4.26.0 \
+          kconfiglib==14.1.0 MarkupSafe==3.0.4 numpy==2.2.6 packaging==26.3 pyelftools==0.33 \
+          pyros-genmsg==0.5.8 pyserial==3.5 PyYAML==6.0.3 toml==0.10.2 setuptools==69.5.1
+        git clone --depth 1 --branch "${{ inputs.tag }}" --recurse-submodules --shallow-submodules -j4 \
+          https://github.com/PX4/PX4-Autopilot.git /tmp/px4
+        test "$(git -C /tmp/px4 rev-parse HEAD)" = "${{ inputs.commit }}"
+        cd /tmp/px4
+        sed -e 's/^CONFIG_MODULES_SIMULATION_GZ_MSGS=y/# CONFIG_MODULES_SIMULATION_GZ_MSGS is not set/' \
+            -e 's/^CONFIG_MODULES_SIMULATION_GZ_BRIDGE=y/# CONFIG_MODULES_SIMULATION_GZ_BRIDGE is not set/' \
+            -e 's/^CONFIG_MODULES_SIMULATION_GZ_PLUGINS=y/# CONFIG_MODULES_SIMULATION_GZ_PLUGINS is not set/' \
+            boards/px4/sitl/default.px4board > boards/px4/sitl/nogz.px4board
+        PATH=/tmp/px4venv/bin:$PATH make px4_sitl_nogz -j"$(nproc)"
+        mkdir -p ~/px4-sitl/bin
+        cp -a build/px4_sitl_nogz/bin/. ~/px4-sitl/bin/
+        cp -r build/px4_sitl_nogz/etc ~/px4-sitl/etc
+    - name: Save the build to the cache
+      if: steps.cache-px4.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: ~/px4-sitl
+        key: px4-sitl-${{ runner.os }}-${{ runner.arch }}-ubuntu24.04-${{ inputs.commit }}-v2
+    - name: Python environment for the flight scripts
+      shell: bash
+      run: |
+        python3 -m venv /tmp/mavvenv
+        /tmp/mavvenv/bin/pip install pymavlink==2.4.50 future==1.0.0
+        {
+          echo "PX4_BIN=$HOME/px4-sitl/bin/px4"
+          echo "PX4_ETC=$HOME/px4-sitl/etc"
+          echo "PX4_PYTHON=/tmp/mavvenv/bin/python"
+        } >> "$GITHUB_ENV"
