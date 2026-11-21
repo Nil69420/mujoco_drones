@@ -67,7 +67,7 @@ jobs:
             dist/SHA256SUMS
 
       - name: Attest the SBOM
-        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e
         with:
           subject-path: dist/*.tar.gz
           sbom-path: dist/mujoco_drones.cdx.json
