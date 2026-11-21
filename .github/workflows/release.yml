@@ -30,7 +30,7 @@ jobs:
           mujoco-version: ${{ env.MUJOCO_VERSION }}
           mujoco-sha256: ${{ env.MUJOCO_SHA256 }}
           extra-packages: patchelf
-      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532
 
       - name: Check the tag matches the project version
         id: version
