@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(mujoco_drones C)
+project(mujoco_drones VERSION 0.1.0 LANGUAGES C)
 
 if(POLICY CMP0072)
     cmake_policy(SET CMP0072 NEW)
